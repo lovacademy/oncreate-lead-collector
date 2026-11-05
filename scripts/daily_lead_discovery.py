@@ -30,6 +30,28 @@ KEYWORDS = [s.strip() for s in os.getenv("DISCOVERY_KEYWORDS", "dermatology,inte
 INGEST_URL = os.getenv("ONCREATE_INGEST_URL", "").strip()
 TOKEN = os.getenv("ONCREATE_INGEST_TOKEN", "").strip()
 session_calls = 0
+OAUTH_AUDIENCE="oncreate-lead-collector-supabase"
+cached_oidc=None
+cached_oidc_at=0.0
+
+def github_oidc_token():
+    """Get short-lived signed token from the running Actions job, never from repo secrets."""
+    global cached_oidc,cached_oidc_at
+    endpoint=os.getenv("ACTIONS_ID_TOKEN_REQUEST_URL","")
+    job_token=os.getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN","")
+    if not endpoint or not job_token:return ""
+    if cached_oidc and time.monotonic()-cached_oidc_at<180:return cached_oidc
+    sep="&" if "?" in endpoint else "?"
+    url=endpoint+sep+parse.urlencode({"audience":OAUTH_AUDIENCE})
+    req=request.Request(url,headers={"Authorization":"Bearer "+job_token,
+                                    "Accept":"application/json"},method="GET")
+    with request.urlopen(req,timeout=12) as response:
+        result=json.loads(response.read(16000).decode("utf-8"))
+    value=result.get("value","")
+    if not isinstance(value,str) or len(value)<300:raise RuntimeError("GitHub OIDC token unavailable")
+    cached_oidc=value
+    cached_oidc_at=time.monotonic()
+    return value
 
 def fetch_json(url, payload=None, headers=None, timeout=18):
     global session_calls
@@ -45,8 +67,9 @@ def fetch_json(url, payload=None, headers=None, timeout=18):
 
 def pg(path, payload=None, method=None, prefer=None):
     """Write only reviewed candidate fields through a restricted Supabase Edge endpoint."""
-    if not INGEST_URL.startswith("https://") or not TOKEN:
-        raise RuntimeError("ONCREATE_INGEST_URL and ONCREATE_INGEST_TOKEN are required")
+    if not INGEST_URL.startswith("https://") or not (
+      TOKEN or os.getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")):
+        raise RuntimeError("An HTTPS ingest URL and GitHub Actions OIDC or shared token are required")
     if path.startswith("discovery_runs?id=eq.") and method == "PATCH":
         req_body = {"action": "run_end", "id": path.split("eq.",1)[1],
                     "status": payload.get("status", "completed"),
@@ -61,9 +84,10 @@ def pg(path, payload=None, method=None, prefer=None):
     else:
         raise RuntimeError("Collector attempted an unsupported database operation")
     body = json.dumps(req_body).encode("utf-8")
+    oidc=github_oidc_token()
+    auth={"X-GitHub-OIDC":oidc} if oidc else {"X-Collector-Token":TOKEN}
     req = request.Request(INGEST_URL,method="POST",data=body,headers={
-        "Content-Type":"application/json","X-Collector-Token":TOKEN,
-        "User-Agent":AGENT})
+        "Content-Type":"application/json","User-Agent":AGENT,**auth})
     with request.urlopen(req,timeout=20) as rsp:
         raw=rsp.read(100000).decode("utf-8")
     result=json.loads(raw) if raw else {}
