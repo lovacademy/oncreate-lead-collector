@@ -81,6 +81,10 @@ def pg(path, payload=None, method=None, prefer=None):
                     "notes":payload.get("notes","")}
     elif path.startswith("discovered_leads?") and payload:
         req_body = {"action":"candidates","records":[payload]}
+    elif path == "collection_control" and payload and payload.get("action") in (
+        "collection_claim","collection_progress","collection_complete"
+    ):
+        req_body = payload
     else:
         raise RuntimeError("Collector attempted an unsupported database operation")
     body = json.dumps(req_body).encode("utf-8")
