@@ -18,7 +18,7 @@ from html.parser import HTMLParser
 
 DENIED = ("zocdoc.com", "tebra.com", "ama-assn.org", "google.com", "bing.com",
           "facebook.com", "instagram.com", "linkedin.com", "yelp.com", "healthgrades.com",
-          "vitals.com", "webmd.com", "npiregistry.cms.hhs.gov", "mapquest.com")
+          "vitals.com", "webmd.com", "npiregistry.cms.hhs.gov", "mapquest.com", "profiles.health.ny.gov", "doctor.com", "sharecare.com")
 EMAIL_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$", re.I)
 ROLE_RE = re.compile(r"^(info|contact|hello|office|frontdesk|admin|team|reception|appointments|support)@", re.I)
 EMAIL_LINK_RE = re.compile(r"mailto:([a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,})", re.I)
@@ -247,15 +247,27 @@ def find_public_email(website):
 
 
 IGNORE_WORDS={"the","and","for","of","medical","clinic","group","center","centre",
- "health","healthcare","dental","dermatology","practice","associates","llc","inc","pc","pa"}
+ "health","healthcare","dental","dermatology","practice","associates","llc","inc","pc","pa",
+ "care","specialist","specialists","home","advanced","family","pediatric","community",
+ "hospital","providers","services","service","health","urgent","association","ave","avenue"}
 def possible_official_site(name, result):
-    title=str(result.get("title") or "")
-    words=set(re.findall(r"[a-z]{4,}",name.lower()))-IGNORE_WORDS
-    title_words=set(re.findall(r"[a-z]{4,}",title.lower()))
-    if not words or len(words & title_words)<min(2,len(words)):
+    """A matching page title alone is not evidence of ownership.
+    Require a distinctive name token both in the title and in the website's own hostname,
+    rejecting unrelated chain clinics and third-party business directories.
+    """
+    title=str(result.get("title") or "").lower()
+    domain=str(result.get("url") or "")
+    try:
+        hostname=parse.urlsplit(domain).hostname or ""
+        label=hostname.lower().removeprefix("www.").split(".")[0]
+    except ValueError:
         return ""
-    website=str(result.get("url") or "")
-    return public_web_url(website) or ""
+    tokens=set(re.findall(r"[a-z0-9]{3,}",name.lower()))-IGNORE_WORDS
+    meaningful=[w for w in tokens if len(w)>=4 and not w.isdigit()]
+    if not meaningful:return ""
+    if not any(token in title and token in label for token in meaningful):
+        return ""
+    return public_web_url(domain) or ""
 
 def tavily_site_details(name,city,state):
     key=os.getenv("TAVILY_API_KEY","")
@@ -363,7 +375,7 @@ def run():
                         if official:
                             websites_found+=1
                             row["website"]=official
-                            row["site_confidence"]=75
+                            row["site_confidence"]=88
                             row["business_email"]=evidence.get("email","")
                             row["email_confidence"]=evidence.get("confidence",0)
                             row["email_source_url"]=evidence.get("source_url","")
