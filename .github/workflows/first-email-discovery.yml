@@ -1,0 +1,38 @@
+name: First Email Discovery Verification
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/first-email-discovery.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    env:
+      ONCREATE_INGEST_URL: ${{ vars.ONCREATE_INGEST_URL }}
+      ONCREATE_INGEST_TOKEN: ${{ secrets.ONCREATE_INGEST_TOKEN }}
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      DISCOVERY_STATES: "MA"
+      DISCOVERY_KEYWORDS: "dermatology"
+      DISCOVERY_MAX_LEADS: "5"
+      DISCOVERY_MAX_SEARCHES: "3"
+      DISCOVERY_DELAY_SECONDS: "2"
+      DISCOVERY_ENABLE_APOLLO: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate safe crawler
+        run: python -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Check integration without exposing credentials
+        run: |
+          if [ -z "$ONCREATE_INGEST_URL" ]; then echo "SETUP NEEDED: ONCREATE_INGEST_URL variable"; fi
+          if [ -z "$ONCREATE_INGEST_TOKEN" ]; then echo "SETUP NEEDED: ONCREATE_INGEST_TOKEN secret"; fi
+          if [ -z "$TAVILY_API_KEY" ]; then echo "SETUP NEEDED: TAVILY_API_KEY secret"; fi
+      - name: Capture 5 practice candidates and research up to 3 official websites
+        if: ${{ env.ONCREATE_INGEST_URL != '' && env.ONCREATE_INGEST_TOKEN != '' && env.TAVILY_API_KEY != '' }}
+        run: python scripts/daily_lead_discovery.py
