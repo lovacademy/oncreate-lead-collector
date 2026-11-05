@@ -320,6 +320,44 @@ def nppes_records(state, keyword, limit=50):
             "note":"CMS NPPES organization (NPI-2); no marketing email or opt-in supplied."
         }
 
+def nppes_physicians(state, keyword, limit=60):
+    """NPI-1 licensed physician search. Collect practice city/state only, never private data."""
+    taxonomy={
+        "dermatology":"Dermatology", "cardiology":"Cardiovascular Disease",
+        "neurology":"Neurology", "pediatrics":"Pediatrics",
+        "orthopedic":"Orthopaedic Surgery", "family_medicine":"Family Medicine",
+        "internal_medicine":"Internal Medicine", "psychiatry":"Psychiatry",
+        "obstetrics":"Obstetrics & Gynecology", "general_surgery":"Surgery"
+    }.get(keyword.lower(),keyword.replace("_"," "))
+    qs=parse.urlencode({"version":"2.1","enumeration_type":"NPI-1",
+        "taxonomy_description":taxonomy+"*","state":state,"limit":min(limit,100)})
+    result=fetch_json("https://npiregistry.cms.hhs.gov/api/?"+qs)
+    for item in result.get("results",[]):
+        basic=item.get("basic") or {}
+        credential=str(basic.get("credential") or "").upper()
+        types=item.get("taxonomies") or []
+        # Physician taxonomy 207/208; do not collect allied professionals or nurse practitioners.
+        if not any(str(t.get("code","")).startswith(("207","208")) for t in types):
+            continue
+        if str(basic.get("status","A")) not in ("A",""):continue
+        first=str(basic.get("first_name") or "").strip()
+        last=str(basic.get("last_name") or "").strip()
+        if not first or not last:continue
+        address=next((x for x in item.get("addresses",[])
+          if x.get("address_purpose")=="LOCATION" and x.get("city") and x.get("state")),None)
+        if not address:continue
+        npi=str(item.get("number") or "")
+        if not npi.isdigit():continue
+        name="Dr. "+first.title()+" "+last.title()
+        yield {
+            "source_name":"nppes","source_key":npi,"company_name":name[:160],
+            "contact_name":name[:120],"business_email":"","website":"",
+            "city":str(address["city"])[:100],"state":str(address["state"])[:10],
+            "specialty":taxonomy[:100],
+            "source_url":"https://npiregistry.cms.hhs.gov/provider-view/"+npi,
+            "note":"NPI-1 public physician listing; practice city/state only. No personal email or marketing permission."
+        }
+
 def apollo_records(state, limit=50):
     key = os.getenv("APOLLO_API_KEY","")
     if not key or os.getenv("DISCOVERY_ENABLE_APOLLO","false").lower()!="true":
@@ -355,6 +393,7 @@ def run():
     today=dt.date.today()
     state=STATES[today.toordinal()%len(STATES)] if STATES else "NY"
     kw=KEYWORDS[today.toordinal()%len(KEYWORDS)] if KEYWORDS else "dental"
+    target=os.getenv("DISCOVERY_TARGET","physicians").lower()
     count=0
     searched=0
     websites_found=0
@@ -366,7 +405,8 @@ def run():
         apollo_enabled = bool(os.getenv("APOLLO_API_KEY")) and os.getenv("DISCOVERY_ENABLE_APOLLO","false").lower()=="true"
         nppes_budget=max(1,MAX_LEADS//2) if apollo_enabled else MAX_LEADS
         for source in ("nppes","apollo"):
-            stream=nppes_records(state,kw,min(nppes_budget,80)) if source=="nppes" else apollo_records(state,min(MAX_LEADS-nppes_budget,50))
+            stream=(nppes_physicians(state,kw,min(nppes_budget,80)) if target=="physicians"
+                    else nppes_records(state,kw,min(nppes_budget,80))) if source=="nppes" else apollo_records(state,min(MAX_LEADS-nppes_budget,50))
             for row in stream:
                 if (row["source_name"]=="nppes" and os.getenv("TAVILY_API_KEY") and searched<search_limit):
                     searched+=1
