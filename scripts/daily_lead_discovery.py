@@ -477,8 +477,16 @@ def apollo_records(state, limit=50):
         }
 
 def persist(row):
+    """Only save actionable businesses with a verified published role mailbox."""
+    email = str(row.get("business_email") or "").strip().lower()
+    if not email or not EMAIL_RE.fullmatch(email):
+        return False
+    if not row.get("email_source_url") or int(row.get("email_confidence") or 0) < 65:
+        return False
+    row["business_email"] = email
     row["last_seen_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
     pg("discovered_leads?on_conflict=source_name,source_key",row,prefer="resolution=merge-duplicates,return=minimal")
+    return True
 
 def run():
     today=dt.date.today()
@@ -499,10 +507,10 @@ def run():
             searched+=1
             try:
                 for website_row in tavily_clinic_sites(state,kw):
-                    persist(website_row)
-                    count+=1
-                    websites_found+=1
-                    if website_row.get("business_email"): emails_found+=1
+                    if persist(website_row):
+                        count+=1
+                        websites_found+=1
+                        emails_found+=1
                     if count>=MAX_LEADS:break
                     time.sleep(DELAY)
             except Exception as exc:
@@ -528,7 +536,7 @@ def run():
                             row["website"]=official
                             row["site_confidence"]=88
                             row["business_email"]=evidence.get("email","")
-                            if row["business_email"]: emails_found+=1
+                            # Count only after a candidate with an email is persisted.
                             row["email_confidence"]=evidence.get("confidence",0)
                             row["email_source_url"]=evidence.get("source_url","")
                             row["email_source_type"]=evidence.get("source_type","")
@@ -540,8 +548,9 @@ def run():
                             row["crawl_status"]="no_official_site"
                     except Exception as e:
                         print("Optional site search failed:",type(e).__name__,file=sys.stderr)
-                persist(row)
-                count += 1
+                if persist(row):
+                    count += 1
+                    if row.get("business_email"): emails_found+=1
                 if count >= MAX_LEADS: break
                 time.sleep(DELAY)
             if count >= MAX_LEADS: break
