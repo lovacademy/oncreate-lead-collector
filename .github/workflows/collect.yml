@@ -63,6 +63,7 @@ jobs:
             echo "Enable GitHub id-token: write and supply an HTTPS intake URL."
             exit 1
           fi
+      # Initialize geographic coverage once, retaining completed-city checkpoints.
       - name: Seed US Census and Brazil municipality catalog
         if: github.event_name == 'push'
         run: python scripts/seed_geo_cities.py
