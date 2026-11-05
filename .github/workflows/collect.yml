@@ -1,0 +1,56 @@
+name: OnCreate Public Healthcare Discovery
+
+on:
+  schedule:
+    - cron: "15 11 * * *"
+  workflow_dispatch:
+    inputs:
+      max_runtime_minutes:
+        description: "Maximum research minutes for this run (10-340)"
+        default: "340"
+        required: false
+        type: string
+      max_candidates:
+        description: "Maximum candidate records per run (25-12000)"
+        default: "3000"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oncreate-public-collector
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    # Never execute the long-runner or consume private-repository minutes.
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      ONCREATE_INGEST_URL: ${{ vars.ONCREATE_INGEST_URL }}
+      ONCREATE_INGEST_TOKEN: ${{ secrets.ONCREATE_INGEST_TOKEN }}
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      DISCOVERY_ENABLE_APOLLO: "false"
+      DISCOVERY_DELAY_SECONDS: "3"
+      MAX_RUNTIME_MINUTES: ${{ inputs.max_runtime_minutes || '340' }}
+      MAX_DAILY_CANDIDATES: ${{ inputs.max_candidates || '3000' }}
+      DISCOVERY_DAILY_SEARCH_CREDITS: "15"
+      DISCOVERY_ROUND_CANDIDATES: "80"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test collector guardrails
+        run: python -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Require private intake token
+        run: |
+          if [ -z "$ONCREATE_INGEST_URL" ] || [ -z "$ONCREATE_INGEST_TOKEN" ]; then
+            echo "Configure ONCREATE_INGEST_URL (variable) and ONCREATE_INGEST_TOKEN (Actions secret) before running."
+            exit 1
+          fi
+      - name: Collect candidates using permitted sources
+        run: python scripts/run_daily.py
