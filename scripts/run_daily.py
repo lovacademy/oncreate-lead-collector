@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 from daily_lead_discovery import pg as intake
+from seed_geo_cities import seed as seed_geography
 
 # Exact six specialty passes per Census place / IBGE municipality.
 # A city is green only after all 6 passes have completed successfully.
@@ -89,6 +90,7 @@ def main():
     try:
         if not os.getenv("TAVILY_API_KEY"):
             raise RuntimeError("A busca geográfica requer TAVILY_API_KEY no GitHub Actions para localizar sites oficiais.")
+        seed_geography()
         regions=intake("collection_control",{"action":"geo_regions"})["regions"]
         regions=region_queue(regions,country_mode)
         if not regions:
