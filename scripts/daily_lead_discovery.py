@@ -343,6 +343,8 @@ def tavily_clinic_sites(state,keyword,limit=5):
         title=str(item.get("title") or "").strip()
         title_main=re.split(r"\s+[|–—-]\s+",title)[0].strip()
         if len(title_main)<5 or len(title_main)>150:continue
+        # Reject directories even if a future URL-normalization helper is relaxed.
+        if not eligible_domain(parse.urlsplit(str(item.get("url") or "")).hostname):continue
         site=possible_official_site(title,item)
         if not site or site in seen:continue
         # A directory or unrelated commercial page is not an official practice.
