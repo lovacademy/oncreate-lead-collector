@@ -1,5 +1,5 @@
 name: First Email Discovery Verification
-# Re-run to validate signed GitHub OIDC ingestion without requiring a shared secret.
+# Run signed GitHub OIDC intake with the repository's pinned immutable-ID subject.
 on:
   push:
     branches: [main]
