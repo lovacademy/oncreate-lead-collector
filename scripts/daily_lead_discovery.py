@@ -98,6 +98,8 @@ def pg(path, payload=None, method=None, prefer=None):
     if req_body["action"]=="run_start":
         if not result.get("id"):raise RuntimeError("The intake endpoint did not create a run")
         return [{"id":result["id"]}]
+    if req_body["action"].startswith("collection_"):
+        return result
     return []
 
 
