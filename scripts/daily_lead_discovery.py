@@ -308,6 +308,70 @@ def tavily_site_details(name,city,state):
             return site,evidence
     return "", {}
 
+STATE_SEARCH_CITIES={
+ "AL":"Birmingham","AK":"Anchorage","AZ":"Phoenix","AR":"Little Rock",
+ "CA":"Los Angeles","CO":"Denver","CT":"Hartford","DE":"Wilmington",
+ "FL":"Miami","GA":"Atlanta","HI":"Honolulu","ID":"Boise",
+ "IL":"Chicago","IN":"Indianapolis","IA":"Des Moines","KS":"Wichita",
+ "KY":"Louisville","LA":"New Orleans","ME":"Portland","MD":"Baltimore",
+ "MA":"Boston","MI":"Detroit","MN":"Minneapolis","MS":"Jackson",
+ "MO":"St Louis","MT":"Billings","NE":"Omaha","NV":"Las Vegas",
+ "NH":"Manchester","NJ":"Newark","NM":"Albuquerque","NY":"New York",
+ "NC":"Charlotte","ND":"Fargo","OH":"Columbus","OK":"Oklahoma City",
+ "OR":"Portland","PA":"Philadelphia","RI":"Providence","SC":"Charleston",
+ "SD":"Sioux Falls","TN":"Nashville","TX":"Houston","UT":"Salt Lake City",
+ "VT":"Burlington","VA":"Richmond","WA":"Seattle","WV":"Charleston",
+ "WI":"Milwaukee","WY":"Cheyenne"
+}
+def tavily_clinic_sites(state,keyword,limit=5):
+    """One official-site category search can provide several clinics.
+    This prioritizes websites likely to publish real business email addresses
+    instead of spending each credit on a single NPPES entry with no site.
+    """
+    key=os.getenv("TAVILY_API_KEY","")
+    if not key:return []
+    city=STATE_SEARCH_CITIES.get(state,"")
+    specialty=keyword.replace("_"," ")
+    query=f'{specialty} physician clinics medical practices in {city} {state} official website contact'
+    result=fetch_json("https://api.tavily.com/search",{
+       "query":query,"search_depth":"basic","max_results":min(limit,5),
+       "topic":"general","include_answer":False,"include_raw_content":False
+    },{"Authorization":"Bearer "+key})
+    rows=[]
+    seen=set()
+    for item in result.get("results",[]):
+        title=str(item.get("title") or "").strip()
+        title_main=re.split(r"\s+[|–—-]\s+",title)[0].strip()
+        if len(title_main)<5 or len(title_main)>150:continue
+        site=possible_official_site(title,item)
+        if not site or site in seen:continue
+        # A directory or unrelated commercial page is not an official practice.
+        context=(title+" "+str(item.get("content") or "")[:350]).lower()
+        if not any(word in context for word in ("doctor","physician","clinic","dermatol",
+          "cardiol","hospital","medical","health","patient","practice","pediatric",
+          "neurolog","orthop","medicine","psychiatr","obstetric")):
+            continue
+        seen.add(site)
+        evidence=find_public_contact(site)
+        rows.append({
+          "source_name":"website",
+          "source_key":parse.urlsplit(site).hostname[:145],
+          "company_name":title_main[:160],
+          "contact_name":"","phone":"","website":site,
+          "business_email":evidence.get("email",""),
+          "city":city,"state":state,"specialty":specialty[:100],
+          "source_url":site+"/",
+          "site_confidence":75,
+          "email_confidence":evidence.get("confidence",0),
+          "email_source_url":evidence.get("source_url",""),
+          "email_source_type":evidence.get("source_type",""),
+          "crawl_status":evidence.get("status","not_found"),
+          "pages_scanned":evidence.get("pages_scanned",0),
+          "last_crawled_at":evidence.get("last_crawled_at"),
+          "note":"Candidate independent medical practice site; verify identity and published email before CRM import."
+        })
+    return rows
+
 def tavily_site_for(name,city,state):
     """Legacy two-value helper retained for manually enriching staged leads."""
     site,evidence=tavily_site_details(name,city,state)
@@ -427,14 +491,29 @@ def run():
         "notes":"Daily bounded job: "+state+" / "+kw})
     job=record[0]["id"]
     try:
+        # One broad clinic-site query per round: multiple official websites per Tavily credit.
+        if os.getenv("TAVILY_API_KEY") and searched<search_limit:
+            searched+=1
+            try:
+                for website_row in tavily_clinic_sites(state,kw):
+                    persist(website_row)
+                    count+=1
+                    websites_found+=1
+                    if count>=MAX_LEADS:break
+                    time.sleep(DELAY)
+            except Exception as exc:
+                print("Optional medical practice category search failed:",type(exc).__name__,file=sys.stderr)
         apollo_enabled = bool(os.getenv("APOLLO_API_KEY")) and os.getenv("DISCOVERY_ENABLE_APOLLO","false").lower()=="true"
         nppes_budget=max(1,MAX_LEADS//2) if apollo_enabled else MAX_LEADS
+        individual_searches=0
         for source in ("nppes","apollo"):
             stream=(nppes_physicians(state,kw,min(nppes_budget,80)) if target=="physicians"
                     else nppes_records(state,kw,min(nppes_budget,80))) if source=="nppes" else apollo_records(state,min(MAX_LEADS-nppes_budget,50))
             for row in stream:
-                if (row["source_name"]=="nppes" and os.getenv("TAVILY_API_KEY") and searched<search_limit):
+                if (row["source_name"]=="nppes" and os.getenv("TAVILY_API_KEY")
+                    and searched<search_limit and individual_searches<1):
                     searched+=1
+                    individual_searches+=1
                     try:
                         official,evidence=tavily_site_details(row["company_name"],row["city"],row["state"])
                         if official:
