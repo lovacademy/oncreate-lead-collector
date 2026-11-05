@@ -33,6 +33,15 @@ jobs:
           if [ -z "$ONCREATE_INGEST_URL" ]; then echo "SETUP NEEDED: ONCREATE_INGEST_URL variable"; fi
           if [ -z "$ONCREATE_INGEST_TOKEN" ]; then echo "SETUP NEEDED: ONCREATE_INGEST_TOKEN secret"; fi
           if [ -z "$TAVILY_API_KEY" ]; then echo "SETUP NEEDED: TAVILY_API_KEY secret"; fi
+      - name: Missing Supabase intake URL variable
+        if: ${{ env.ONCREATE_INGEST_URL == '' }}
+        run: echo "ONCREATE_INGEST_URL is not set in the public repository."
+      - name: Missing restricted Supabase intake token
+        if: ${{ env.ONCREATE_INGEST_TOKEN == '' }}
+        run: echo "ONCREATE_INGEST_TOKEN is not set in the public repository."
+      - name: Missing Tavily API key
+        if: ${{ env.TAVILY_API_KEY == '' }}
+        run: echo "TAVILY_API_KEY is not set in the public repository."
       - name: Capture 5 practice candidates and research up to 3 official websites
         if: ${{ env.ONCREATE_INGEST_URL != '' && env.ONCREATE_INGEST_TOKEN != '' && env.TAVILY_API_KEY != '' }}
         run: python scripts/daily_lead_discovery.py
