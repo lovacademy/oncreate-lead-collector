@@ -353,7 +353,9 @@ def tavily_clinic_sites(state,keyword,limit=5):
     seen=set()
     for item in result.get("results",[]):
         title=str(item.get("title") or "").strip()
-        title_main=re.split(r"\s+[|–—-]\s+",title)[0].strip()
+        parts=[name.strip() for name in re.split(r"\s+[|–—-]\s+",title)]
+        generic={"contact","contact us","home","about","about us","locations","services","appointments"}
+        title_main=next((name for name in parts if name.casefold() not in generic and 5<=len(name)<=150),"")
         if len(title_main)<5 or len(title_main)>150:continue
         # Reject directories even if a future URL-normalization helper is relaxed.
         if not eligible_domain(parse.urlsplit(str(item.get("url") or "")).hostname):continue
