@@ -2,7 +2,9 @@ name: OnCreate Public Healthcare Discovery
 
 on:
   schedule:
-    - cron: "15 11 * * *"
+    # 00:10-05:50 Brazil time and 05:55-07:05 (two bounded jobs, each <6h).
+    - cron: "10 3 * * *"
+    - cron: "55 8 * * *"
   workflow_dispatch:
     inputs:
       max_runtime_minutes:
@@ -18,6 +20,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: oncreate-public-collector
@@ -35,7 +38,7 @@ jobs:
       TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
       DISCOVERY_ENABLE_APOLLO: "false"
       DISCOVERY_DELAY_SECONDS: "3"
-      MAX_RUNTIME_MINUTES: ${{ inputs.max_runtime_minutes || '340' }}
+      MAX_RUNTIME_MINUTES: ${{ inputs.max_runtime_minutes || (github.event.schedule == '55 8 * * *' && '70' || '340') }}
       MAX_DAILY_CANDIDATES: ${{ inputs.max_candidates || '3000' }}
       DISCOVERY_DAILY_SEARCH_CREDITS: "15"
       DISCOVERY_ROUND_CANDIDATES: "80"
@@ -46,10 +49,10 @@ jobs:
           python-version: "3.12"
       - name: Test collector guardrails
         run: python -m unittest discover -s scripts -p 'test_*.py' -v
-      - name: Require private intake token
+      - name: Require signed GitHub job or private intake secret
         run: |
-          if [ -z "$ONCREATE_INGEST_URL" ] || [ -z "$ONCREATE_INGEST_TOKEN" ]; then
-            echo "Configure ONCREATE_INGEST_URL (variable) and ONCREATE_INGEST_TOKEN (Actions secret) before running."
+          if [ -z "$ONCREATE_INGEST_URL" ] || { [ -z "$ONCREATE_INGEST_TOKEN" ] && [ -z "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; }; then
+            echo "Enable GitHub id-token: write and supply an HTTPS intake URL."
             exit 1
           fi
       - name: Collect candidates using permitted sources
