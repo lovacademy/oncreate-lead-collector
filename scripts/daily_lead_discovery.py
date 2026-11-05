@@ -82,7 +82,8 @@ def pg(path, payload=None, method=None, prefer=None):
     elif path.startswith("discovered_leads?") and payload:
         req_body = {"action":"candidates","records":[payload]}
     elif path == "collection_control" and payload and payload.get("action") in (
-        "collection_claim","collection_progress","collection_complete"
+        "collection_claim","collection_progress","collection_complete",
+        "geo_regions","geo_seed","geo_next","geo_mark"
     ):
         req_body = payload
     else:
@@ -98,7 +99,7 @@ def pg(path, payload=None, method=None, prefer=None):
     if req_body["action"]=="run_start":
         if not result.get("id"):raise RuntimeError("The intake endpoint did not create a run")
         return [{"id":result["id"]}]
-    if req_body["action"].startswith("collection_"):
+    if req_body["action"].startswith(("collection_","geo_")):
         return result
     return []
 
@@ -570,5 +571,6 @@ def run():
     print(json.dumps({"state":state,"keyword":kw,"saved":count,"websites_found":websites_found,"emails_found":emails_found,"site_search_queries":searched,"api_calls":session_calls}))
 
 if __name__=="__main__":
-    if not INGEST_URL or not TOKEN: sys.exit("Missing ONCREATE_INGEST_URL or ONCREATE_INGEST_TOKEN")
+    if not INGEST_URL or not (TOKEN or os.getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")):
+        sys.exit("Missing intake URL and signed Actions identity")
     run()
