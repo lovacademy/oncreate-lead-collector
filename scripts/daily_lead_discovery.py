@@ -21,7 +21,7 @@ DENIED = ("zocdoc.com", "tebra.com", "ama-assn.org", "google.com", "bing.com",
           "vitals.com", "webmd.com", "npiregistry.cms.hhs.gov", "mapquest.com", "profiles.health.ny.gov", "doctor.com", "sharecare.com",
           "doctoralia.com.br", "doctoralia.com", "docplanner.com")
 EMAIL_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$", re.I)
-ROLE_RE = re.compile(r"^(info|contact|hello|office|frontdesk|admin|team|reception|appointments|support)@", re.I)
+ROLE_RE = re.compile(r"^(info|contact|hello|office|frontdesk|admin|team|reception|appointments|support|sales|contato|atendimento|agendamento|secretaria|recepcao|comercial|consultorio|clinica)@", re.I)
 EMAIL_LINK_RE = re.compile(r"mailto:([a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,})", re.I)
 AGENT = "OnCreate-Lead-Research/1.0 (public contact page review)"
 MAX_LEADS = min(max(int(os.getenv("DISCOVERY_MAX_LEADS", "80")), 1), 250)
