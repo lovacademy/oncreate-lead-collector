@@ -488,6 +488,7 @@ def run():
     count=0
     searched=0
     websites_found=0
+    emails_found=0
     search_limit=min(max(int(os.getenv("DISCOVERY_MAX_SEARCHES","15")),0),20)
     record=pg("discovery_runs",{"source_name":"nppes/apollo","status":"running",
         "notes":"Daily bounded job: "+state+" / "+kw})
@@ -501,19 +502,23 @@ def run():
                     persist(website_row)
                     count+=1
                     websites_found+=1
+                    if website_row.get("business_email"): emails_found+=1
                     if count>=MAX_LEADS:break
                     time.sleep(DELAY)
             except Exception as exc:
                 print("Optional medical practice category search failed:",type(exc).__name__,file=sys.stderr)
         apollo_enabled = bool(os.getenv("APOLLO_API_KEY")) and os.getenv("DISCOVERY_ENABLE_APOLLO","false").lower()=="true"
-        nppes_budget=max(1,MAX_LEADS//2) if apollo_enabled else MAX_LEADS
+        # Email-first: limit NPPES records with no website/email when official-site
+        # research is enabled. Spend discovery effort on verifiable practice sites.
+        nppes_budget=(max(6,MAX_LEADS//4) if os.getenv("TAVILY_API_KEY")
+                      else max(1,MAX_LEADS//2) if apollo_enabled else MAX_LEADS)
         individual_searches=0
         for source in ("nppes","apollo"):
             stream=(nppes_physicians(state,kw,min(nppes_budget,80)) if target=="physicians"
                     else nppes_records(state,kw,min(nppes_budget,80))) if source=="nppes" else apollo_records(state,min(MAX_LEADS-nppes_budget,50))
             for row in stream:
                 if (row["source_name"]=="nppes" and os.getenv("TAVILY_API_KEY")
-                    and searched<search_limit and individual_searches<1):
+                    and searched<search_limit and individual_searches<2):
                     searched+=1
                     individual_searches+=1
                     try:
@@ -523,6 +528,7 @@ def run():
                             row["website"]=official
                             row["site_confidence"]=88
                             row["business_email"]=evidence.get("email","")
+                            if row["business_email"]: emails_found+=1
                             row["email_confidence"]=evidence.get("confidence",0)
                             row["email_source_url"]=evidence.get("source_url","")
                             row["email_source_type"]=evidence.get("source_type","")
@@ -540,12 +546,13 @@ def run():
                 time.sleep(DELAY)
             if count >= MAX_LEADS: break
         pg("discovery_runs?id=eq."+job,{"ended_at":dt.datetime.now(dt.timezone.utc).isoformat(),
-            "status":"completed","collected":count,"enriched":websites_found},method="PATCH")
+            "status":"completed","collected":count,"enriched":websites_found,
+            "notes":f"Official practice sites: {websites_found}; published role emails: {emails_found}"},method="PATCH")
     except Exception as exc:
         pg("discovery_runs?id=eq."+job,{"ended_at":dt.datetime.now(dt.timezone.utc).isoformat(),
             "status":"failed","collected":count,"notes":str(exc)[:300]},method="PATCH")
         raise
-    print(json.dumps({"state":state,"keyword":kw,"saved":count,"websites_found":websites_found,"site_search_queries":searched,"api_calls":session_calls}))
+    print(json.dumps({"state":state,"keyword":kw,"saved":count,"websites_found":websites_found,"emails_found":emails_found,"site_search_queries":searched,"api_calls":session_calls}))
 
 if __name__=="__main__":
     if not INGEST_URL or not TOKEN: sys.exit("Missing ONCREATE_INGEST_URL or ONCREATE_INGEST_TOKEN")
