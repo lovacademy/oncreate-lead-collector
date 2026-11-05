@@ -26,7 +26,7 @@ AGENT = "OnCreate-Lead-Research/1.0 (public contact page review)"
 MAX_LEADS = min(max(int(os.getenv("DISCOVERY_MAX_LEADS", "80")), 1), 250)
 DELAY = max(float(os.getenv("DISCOVERY_DELAY_SECONDS", "3")), 2.0)
 STATES = [s.strip().upper() for s in os.getenv("DISCOVERY_STATES", "NY,CA,FL,TX,MA").split(",") if re.fullmatch(r"[A-Za-z]{2}", s.strip())]
-KEYWORDS = [s.strip() for s in os.getenv("DISCOVERY_KEYWORDS", "dental,dermatology,medical").split(",") if re.fullmatch(r"[A-Za-z ]{3,35}", s.strip())]
+KEYWORDS = [s.strip() for s in os.getenv("DISCOVERY_KEYWORDS", "dermatology,internal_medicine,pediatrics").split(",") if re.fullmatch(r"[A-Za-z ]{3,35}", s.strip())]
 INGEST_URL = os.getenv("ONCREATE_INGEST_URL", "").strip()
 TOKEN = os.getenv("ONCREATE_INGEST_TOKEN", "").strip()
 session_calls = 0
@@ -293,7 +293,8 @@ def nppes_records(state, keyword, limit=50):
     specialties = {
         "dental":"Dentist", "dermatology":"Dermatology",
         "medical":"Clinic/Center", "orthopedic":"Orthopaedic Surgery",
-        "pediatrics":"Pediatrics", "cardiology":"Cardiovascular Disease"
+        "pediatrics":"Pediatrics", "cardiology":"Cardiovascular Disease",
+        "hospital":"General Acute Care Hospital"
     }
     specialty = specialties.get(keyword.lower(), keyword)
     args = parse.urlencode({"version":"2.1","enumeration_type":"NPI-2",
