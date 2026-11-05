@@ -12,10 +12,13 @@ import socket
 import sys
 import time
 from urllib import error, parse, request, robotparser
+from collections import deque
 from html import unescape
 from html.parser import HTMLParser
 
-DENIED = ("zocdoc.com", "tebra.com", "ama-assn.org", "google.com", "bing.com")
+DENIED = ("zocdoc.com", "tebra.com", "ama-assn.org", "google.com", "bing.com",
+          "facebook.com", "instagram.com", "linkedin.com", "yelp.com", "healthgrades.com",
+          "vitals.com", "webmd.com", "npiregistry.cms.hhs.gov", "mapquest.com")
 EMAIL_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$", re.I)
 ROLE_RE = re.compile(r"^(info|contact|hello|office|frontdesk|admin|team|reception|appointments|support)@", re.I)
 EMAIL_LINK_RE = re.compile(r"mailto:([a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,})", re.I)
@@ -89,59 +92,158 @@ def public_web_url(url):
         return None
 
 class MailtoParser(HTMLParser):
+    """Read published generic addresses and same-domain contact navigation."""
     def __init__(self):
         super().__init__()
-        self.emails = set()
-    def handle_starttag(self, tag, attrs):
-        if tag != "a": return
-        href = dict(attrs).get("href", "")
-        for m in EMAIL_LINK_RE.finditer(unescape(href)):
-            email = m.group(1).lower()
-            if EMAIL_RE.fullmatch(email) and ROLE_RE.match(email):
-                self.emails.add(email)
+        self.emails=set()
+        self.evidence=[]  # (email, method)
+        self.links=set()
+        self._ignore=0
+        self._ldjson=False
+    def handle_starttag(self,tag,attrs):
+        attrs=dict(attrs)
+        if tag in ("style","script","noscript"):
+            self._ignore+=1
+            if tag=="script" and attrs.get("type","").lower()=="application/ld+json":
+                self._ldjson=True
+        if tag=="a":
+            href=unescape(str(attrs.get("href") or ""))
+            if href.lower().startswith("mailto:"):
+                for match in EMAIL_LINK_RE.finditer(href):
+                    self.add(match.group(1),"mailto")
+            elif href:
+                self.links.add(href)
+    def handle_endtag(self,tag):
+        if tag in ("style","script","noscript"):
+            self._ignore=max(0,self._ignore-1)
+            if tag=="script":self._ldjson=False
+    def handle_data(self,data):
+        if not data:return
+        if self._ldjson:
+            for m in PUBLIC_EMAIL_RE.finditer(unescape(data)):
+                self.add(m.group(0),"schema")
+        elif self._ignore==0:
+            for m in PUBLIC_EMAIL_RE.finditer(unescape(data)):
+                self.add(m.group(0),"visible")
+    def add(self,email,method):
+        email=email.lower().strip().strip(".,;:")
+        if EMAIL_RE.fullmatch(email) and ROLE_RE.match(email):
+            self.emails.add(email)
+            self.evidence.append((email,method))
 
-def find_public_email(website):
-    site = public_web_url(website)
-    if not site: return "", ""
-    class BlockRedirect(request.HTTPRedirectHandler):
-        def redirect_request(self, req, fp, code, msg, headers, newurl):
+PUBLIC_EMAIL_RE=re.compile(r"(?<![a-zA-Z0-9._%+\-])[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}(?![a-zA-Z0-9])",re.I)
+COMMON_PAGES=("/contact","/contact-us","/contacto","/about","/team","/providers",
+              "/locations","/appointments","/privacy-policy")
+CONTACT_HINTS=("contact","about","team","provider","staff","location",
+               "appointment","privacy","our-practice","get-in-touch")
+MAX_CRAWL_PAGES=7
+
+def contact_page_score(path):
+    lower=path.lower()
+    if "contact" in lower or "get-in-touch" in lower:return 6
+    if lower in ("","/"):return 1
+    if "privacy" in lower:return -5
+    return 3
+
+def email_score(email,method,url,site):
+    host=parse.urlsplit(site).hostname or ""
+    domain=email.rsplit("@",1)[1]
+    belongs=domain==host or domain==host.removeprefix("www.") or host.endswith("."+domain)
+    base={"mailto":91,"schema":82,"visible":75}[method]
+    return max(0,min(100,base+contact_page_score(parse.urlsplit(url).path)-
+                        (0 if belongs else 18)))
+
+def scanner_status(site,found,pages,eligible,blocked):
+    if found:return "found"
+    if pages:return "not_found"
+    return "blocked" if blocked or not eligible else "error"
+
+def find_public_contact(website):
+    """Bounded seven-page crawl with public DNS, robots, same-host URLs and no redirects."""
+    site=public_web_url(website)
+    evidence={"email":"","source_url":"","source_type":"","confidence":0,
+        "pages_scanned":0,"status":"no_official_site" if not site else "not_found",
+        "last_crawled_at":dt.datetime.now(dt.timezone.utc).isoformat()}
+    if not site:return evidence
+    class NoRedirect(request.HTTPRedirectHandler):
+        def redirect_request(self,req,fp,code,msg,headers,newurl):
             return None
-    opener = request.build_opener(request.HTTPHandler(), request.HTTPSHandler(), BlockRedirect)
-    rules = robotparser.RobotFileParser()
-    rules.set_url(site + "/robots.txt")
+    opener=request.build_opener(request.HTTPHandler(),request.HTTPSHandler(),NoRedirect)
+    rules=robotparser.RobotFileParser()
+    rules.set_url(site+"/robots.txt")
     try:
-        req = request.Request(site + "/robots.txt", headers={"User-Agent": AGENT})
-        with opener.open(req, timeout=6) as response:
-            lines = response.read(250000).decode("utf-8","replace").splitlines()
-        rules.parse(lines)
+        req=request.Request(site+"/robots.txt",headers={"User-Agent":AGENT})
+        with opener.open(req,timeout=7) as res:
+            if int(res.headers.get("Content-Length","0"))>200000:return {**evidence,"status":"blocked"}
+            robots=res.read(200000).decode("utf-8","replace").splitlines()
+        rules.parse(robots)
     except error.HTTPError as exc:
-        if exc.code == 404:
-            rules.parse([])
-        else:
-            return "", ""
-    except Exception:
-        return "", ""  # Fail closed if the site's robots rules are unavailable.
-    for path in ("/", "/contact", "/contact-us", "/about"):
-        url = site + path
-        if not rules.can_fetch(AGENT, url): continue
+        if exc.code==404:rules.parse([])
+        else:return {**evidence,"status":"blocked"}
+    except (OSError,ValueError):
+        return {**evidence,"status":"blocked"}
+    host=parse.urlsplit(site).hostname
+    queue=deque([site+"/"])
+    queued=set(queue)
+    found=[]
+    blocked=0
+    eligible=0
+    while queue and evidence["pages_scanned"]<MAX_CRAWL_PAGES:
+        url=queue.popleft()
+        if not rules.can_fetch(AGENT,url):
+            blocked+=1
+            continue
+        eligible+=1
+        if not public_web_url(url):
+            blocked+=1
+            continue
         try:
-            req = request.Request(url, headers={"User-Agent": AGENT, "Accept": "text/html"}, method="GET")
-            with opener.open(req, timeout=8) as res:
-                # Refuse cross-domain redirects and non-HTML.
-                final = parse.urlsplit(res.geturl())
-                if final.scheme != "https" or final.hostname != parse.urlsplit(site).hostname:
-                    continue
-                if "text/html" not in res.headers.get("Content-Type", ""): continue
-                if int(res.headers.get("Content-Length", "0")) > 350_000: continue
-                html = res.read(350_000).decode("utf-8", "replace")
-            parser = MailtoParser()
+            req=request.Request(url,headers={"User-Agent":AGENT,"Accept":"text/html"},method="GET")
+            with opener.open(req,timeout=9) as res:
+                final=parse.urlsplit(res.geturl())
+                if final.scheme!="https" or final.hostname!=host:continue
+                if "text/html" not in res.headers.get("Content-Type",""):continue
+                if int(res.headers.get("Content-Length","0"))>350000:continue
+                html=res.read(350000).decode("utf-8","replace")
+            evidence["pages_scanned"]+=1
+            parser=MailtoParser()
             parser.feed(html)
-            if parser.emails:
-                return sorted(parser.emails)[0], url
-        except (OSError, ValueError, error.HTTPError):
+            for email,method in parser.evidence:
+                confidence=email_score(email,method,url,site)
+                if confidence>=65:
+                    found.append((confidence,method,email,url))
+            for href in sorted(parser.links):
+                if len(queued)>=18:break
+                candidate=parse.urljoin(site+"/",href)
+                parsed=parse.urlsplit(candidate)
+                if parsed.scheme!="https" or parsed.hostname!=host or parsed.query:
+                    continue
+                path=parsed.path.rstrip("/") or "/"
+                if path=="/" or not any(hint in path.lower() for hint in CONTACT_HINTS):
+                    continue
+                canonical=site+path
+                if canonical not in queued:
+                    queued.add(canonical)
+                    queue.append(canonical)
+            if evidence["pages_scanned"]==1:
+                for p in COMMON_PAGES:
+                    if len(queued)>=18:break
+                    canonical=site+p
+                    if canonical not in queued:queued.add(canonical);queue.append(canonical)
+        except (OSError,ValueError,error.HTTPError,UnicodeError):
             pass
         time.sleep(DELAY)
-    return "", ""
+    if found:
+        best=max(found,key=lambda t:(t[0],t[1]=="mailto"))
+        evidence.update({"email":best[2],"confidence":best[0],
+          "source_type":best[1],"source_url":best[3]})
+    evidence["status"]=scanner_status(site,bool(found),evidence["pages_scanned"],eligible,blocked)
+    return evidence
+
+def find_public_email(website):
+    """Compatibility wrapper for existing approved site-enrichment flows."""
+    result=find_public_contact(website)
+    return result["email"],result["source_url"]
 
 
 IGNORE_WORDS={"the","and","for","of","medical","clinic","group","center","centre",
@@ -155,10 +257,10 @@ def possible_official_site(name, result):
     website=str(result.get("url") or "")
     return public_web_url(website) or ""
 
-def tavily_site_for(name, city, state):
+def tavily_site_details(name,city,state):
     key=os.getenv("TAVILY_API_KEY","")
-    if not key:return "", ""
-    query='"'+name[:90]+'" '+city[:50]+' '+state[:2]+' official practice website'
+    if not key:return "", {}
+    query='"'+name[:90]+'" '+city[:50]+' '+state[:2]+' official clinic website'
     result=fetch_json("https://api.tavily.com/search",{
        "query":query,"search_depth":"basic","max_results":5,"topic":"general",
        "include_answer":False,"include_raw_content":False
@@ -166,9 +268,14 @@ def tavily_site_for(name, city, state):
     for item in result.get("results",[]):
         site=possible_official_site(name,item)
         if site:
-            email,source=find_public_email(site)
-            return site,email
-    return "", ""
+            evidence=find_public_contact(site)
+            return site,evidence
+    return "", {}
+
+def tavily_site_for(name,city,state):
+    """Legacy two-value helper retained for manually enriching staged leads."""
+    site,evidence=tavily_site_details(name,city,state)
+    return site,evidence.get("email","")
 
 def nppes_records(state, keyword, limit=50):
     specialties = {
@@ -252,12 +359,21 @@ def run():
                 if (row["source_name"]=="nppes" and os.getenv("TAVILY_API_KEY") and searched<search_limit):
                     searched+=1
                     try:
-                        official,email=tavily_site_for(row["company_name"],row["city"],row["state"])
+                        official,evidence=tavily_site_details(row["company_name"],row["city"],row["state"])
                         if official:
                             websites_found+=1
                             row["website"]=official
-                            row["business_email"]=email
-                            row["note"]+=" Website candidate from a search API; verify official identity before outreach."
+                            row["site_confidence"]=75
+                            row["business_email"]=evidence.get("email","")
+                            row["email_confidence"]=evidence.get("confidence",0)
+                            row["email_source_url"]=evidence.get("source_url","")
+                            row["email_source_type"]=evidence.get("source_type","")
+                            row["crawl_status"]=evidence.get("status","not_found")
+                            row["pages_scanned"]=evidence.get("pages_scanned",0)
+                            row["last_crawled_at"]=evidence.get("last_crawled_at")
+                            row["note"]+=" Website candidate from Tavily; manual company identity verification required."
+                        else:
+                            row["crawl_status"]="no_official_site"
                     except Exception as e:
                         print("Optional site search failed:",type(e).__name__,file=sys.stderr)
                 persist(row)
