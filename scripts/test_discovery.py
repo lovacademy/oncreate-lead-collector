@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 from daily_lead_discovery import (
     eligible_domain, public_web_url, MailtoParser, nppes_records, possible_official_site,
-    MAX_LEADS, DENIED
+    MAX_LEADS, DENIED, email_score, find_public_contact
 )
 
 class DiscoveryTests(unittest.TestCase):
@@ -30,6 +30,54 @@ class DiscoveryTests(unittest.TestCase):
          <a href="mailto:doctor.personal@clinic.org">Private</a>
          <a href="mailto:office@clinic.org?subject=Hi">Office</a>""")
         self.assertEqual(parser.emails, {"info@clinic.org","office@clinic.org"})
+
+    def test_published_email_evidence_from_visible_text_and_schema(self):
+        parser=MailtoParser()
+        parser.feed("""<html><body><div>office@clinic.org</div>
+          <script type="application/ld+json">{"email":"info@clinic.org"}</script>
+          <a href="mailto:contact@clinic.org">Email us</a>
+          <script>var fake='admin@evil.org';</script>
+          <div>john.doe@clinic.org</div>
+        </body></html>""")
+        self.assertIn(("info@clinic.org","schema"),parser.evidence)
+        self.assertIn(("office@clinic.org","visible"),parser.evidence)
+        self.assertIn(("contact@clinic.org","mailto"),parser.evidence)
+        self.assertNotIn("admin@evil.org",parser.emails)
+        self.assertNotIn("john.doe@clinic.org",parser.emails)
+
+    def test_mailto_contact_page_has_higher_source_confidence(self):
+        home=email_score("info@clinic.org","mailto","https://clinic.org/","https://clinic.org")
+        contact=email_score("info@clinic.org","mailto","https://clinic.org/contact","https://clinic.org")
+        other=email_score("info@gmail.com","mailto","https://clinic.org/contact","https://clinic.org")
+        self.assertGreaterEqual(contact,90)
+        self.assertGreater(contact,home)
+        self.assertLess(other,contact)
+
+    def test_scans_homepage_and_official_contact_page_without_network(self):
+        class FakeResponse:
+            def __init__(self,url,body,kind):
+                self.url,self.content,self.headers=url,body.encode(),{"Content-Type":kind}
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def read(self,size=999999):return self.content[:size]
+            def geturl(self):return self.url
+        class FakeOpener:
+            def open(self,req,timeout=9):
+                u=req.full_url
+                if u.endswith("/robots.txt"):
+                    return FakeResponse(u,"User-agent: *\nAllow: /\n","text/plain")
+                if u.endswith("/contact"):
+                    return FakeResponse(u,'<a href="mailto:info@clinic.org">Email us</a>',"text/html")
+                return FakeResponse(u,'<a href="/contact">Contact us</a>',"text/html")
+        with patch("daily_lead_discovery.public_web_url",side_effect=lambda url:url),\
+             patch("daily_lead_discovery.request.build_opener",return_value=FakeOpener()),\
+             patch("daily_lead_discovery.time.sleep"):
+            result=find_public_contact("https://clinic.org")
+        self.assertEqual(result["email"],"info@clinic.org")
+        self.assertEqual(result["source_url"],"https://clinic.org/contact")
+        self.assertGreater(result["confidence"],90)
+        self.assertEqual(result["status"],"found")
+        self.assertLessEqual(result["pages_scanned"],7)
 
     def test_nppes_public_organization_not_person(self):
         fixture={"results":[
