@@ -63,5 +63,8 @@ jobs:
             echo "Enable GitHub id-token: write and supply an HTTPS intake URL."
             exit 1
           fi
+      - name: Seed US Census and Brazil municipality catalog
+        if: github.event_name == 'push'
+        run: python scripts/seed_geo_cities.py
       - name: Collect candidates using permitted sources
         run: python scripts/run_daily.py
