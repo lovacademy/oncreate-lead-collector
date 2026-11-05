@@ -18,7 +18,8 @@ from html.parser import HTMLParser
 
 DENIED = ("zocdoc.com", "tebra.com", "ama-assn.org", "google.com", "bing.com",
           "facebook.com", "instagram.com", "linkedin.com", "yelp.com", "healthgrades.com",
-          "vitals.com", "webmd.com", "npiregistry.cms.hhs.gov", "mapquest.com", "profiles.health.ny.gov", "doctor.com", "sharecare.com")
+          "vitals.com", "webmd.com", "npiregistry.cms.hhs.gov", "mapquest.com", "profiles.health.ny.gov", "doctor.com", "sharecare.com",
+          "doctoralia.com.br", "doctoralia.com", "docplanner.com")
 EMAIL_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$", re.I)
 ROLE_RE = re.compile(r"^(info|contact|hello|office|frontdesk|admin|team|reception|appointments|support)@", re.I)
 EMAIL_LINK_RE = re.compile(r"mailto:([a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,})", re.I)
@@ -337,9 +338,13 @@ def tavily_clinic_sites(state,keyword,limit=5):
     """
     key=os.getenv("TAVILY_API_KEY","")
     if not key:return []
-    city=STATE_SEARCH_CITIES.get(state,"")
+    city=os.getenv("DISCOVERY_CITY","").strip() or STATE_SEARCH_CITIES.get(state,"")
+    country=os.getenv("DISCOVERY_COUNTRY","US").strip().upper()
     specialty=keyword.replace("_"," ")
-    query=f'{specialty} physician clinics medical practices in {city} {state} official website contact'
+    if country=="BR":
+        query=f'{specialty} médicos clínicas consultórios em {city} {state} Brasil site oficial contato e-mail'
+    else:
+        query=f'{specialty} physician clinics medical practices in {city} {state} USA official website contact'
     result=fetch_json("https://api.tavily.com/search",{
        "query":query,"search_depth":"basic","max_results":min(limit,5),
        "topic":"general","include_answer":False,"include_raw_content":False
@@ -358,7 +363,9 @@ def tavily_clinic_sites(state,keyword,limit=5):
         context=(title+" "+str(item.get("content") or "")[:350]).lower()
         if not any(word in context for word in ("doctor","physician","clinic","dermatol",
           "cardiol","hospital","medical","health","patient","practice","pediatric",
-          "neurolog","orthop","medicine","psychiatr","obstetric")):
+          "neurolog","orthop","medicine","psychiatr","obstetric",
+          "clínica","clinica","médic","medic","consultório","consultorio","saúde","saude",
+          "ginecolog","odontolog","pediatr")):
             continue
         seen.add(site)
         evidence=find_public_contact(site)
@@ -368,7 +375,7 @@ def tavily_clinic_sites(state,keyword,limit=5):
           "company_name":title_main[:160],
           "contact_name":"","phone":"","website":site,
           "business_email":evidence.get("email",""),
-          "city":city,"state":state,"specialty":specialty[:100],
+          "city":city,"state":state,"country_code":country,"specialty":specialty[:100],
           "source_url":site+"/",
           "site_confidence":75,
           "email_confidence":evidence.get("confidence",0),
@@ -395,7 +402,9 @@ def nppes_records(state, keyword, limit=50):
     }
     specialty = specialties.get(keyword.lower(), keyword)
     args = parse.urlencode({"version":"2.1","enumeration_type":"NPI-2",
-        "taxonomy_description":specialty+"*","state":state,"limit":min(limit,100)})
+        "taxonomy_description":specialty+"*","state":state,
+        **({"city":os.getenv("DISCOVERY_CITY","").strip()} if os.getenv("DISCOVERY_CITY") else {}),
+        "limit":min(limit,100)})
     result = fetch_json("https://npiregistry.cms.hhs.gov/api/?" + args)
     for item in result.get("results", []):
         info = item.get("basic") or {}
@@ -428,7 +437,9 @@ def nppes_physicians(state, keyword, limit=60):
         "obstetrics":"Obstetrics & Gynecology", "general_surgery":"Surgery"
     }.get(keyword.lower(),keyword.replace("_"," "))
     qs=parse.urlencode({"version":"2.1","enumeration_type":"NPI-1",
-        "taxonomy_description":taxonomy+"*","state":state,"limit":min(limit,100)})
+        "taxonomy_description":taxonomy+"*","state":state,
+        **({"city":os.getenv("DISCOVERY_CITY","").strip()} if os.getenv("DISCOVERY_CITY") else {}),
+        "limit":min(limit,100)})
     result=fetch_json("https://npiregistry.cms.hhs.gov/api/?"+qs)
     for item in result.get("results",[]):
         basic=item.get("basic") or {}
@@ -499,6 +510,8 @@ def run():
     today=dt.date.today()
     state=STATES[today.toordinal()%len(STATES)] if STATES else "NY"
     kw=KEYWORDS[today.toordinal()%len(KEYWORDS)] if KEYWORDS else "dental"
+    country=os.getenv("DISCOVERY_COUNTRY","US").strip().upper()
+    city=os.getenv("DISCOVERY_CITY","").strip()
     target=os.getenv("DISCOVERY_TARGET","physicians").lower()
     count=0
     searched=0
@@ -506,7 +519,7 @@ def run():
     emails_found=0
     search_limit=min(max(int(os.getenv("DISCOVERY_MAX_SEARCHES","15")),0),20)
     record=pg("discovery_runs",{"source_name":"nppes/apollo","status":"running",
-        "notes":"Daily bounded job: "+state+" / "+kw})
+        "notes":"Geographic research: "+country+" / "+state+" / "+city+" / "+kw})
     job=record[0]["id"]
     try:
         # One broad clinic-site query per round: multiple official websites per Tavily credit.
@@ -521,14 +534,14 @@ def run():
                     if count>=MAX_LEADS:break
                     time.sleep(DELAY)
             except Exception as exc:
-                print("Optional medical practice category search failed:",type(exc).__name__,file=sys.stderr)
+                raise RuntimeError("Official website search unavailable: "+type(exc).__name__) from exc
         apollo_enabled = bool(os.getenv("APOLLO_API_KEY")) and os.getenv("DISCOVERY_ENABLE_APOLLO","false").lower()=="true"
         # Email-first: limit NPPES records with no website/email when official-site
         # research is enabled. Spend discovery effort on verifiable practice sites.
-        nppes_budget=(max(6,MAX_LEADS//4) if os.getenv("TAVILY_API_KEY")
+        nppes_budget=(max(2,min(10,MAX_LEADS//4)) if os.getenv("TAVILY_API_KEY")
                       else max(1,MAX_LEADS//2) if apollo_enabled else MAX_LEADS)
         individual_searches=0
-        for source in ("nppes","apollo"):
+        for source in (("nppes","apollo") if country=="US" else ()):
             stream=(nppes_physicians(state,kw,min(nppes_budget,80)) if target=="physicians"
                     else nppes_records(state,kw,min(nppes_budget,80))) if source=="nppes" else apollo_records(state,min(MAX_LEADS-nppes_budget,50))
             for row in stream:
@@ -568,7 +581,7 @@ def run():
         pg("discovery_runs?id=eq."+job,{"ended_at":dt.datetime.now(dt.timezone.utc).isoformat(),
             "status":"failed","collected":count,"notes":str(exc)[:300]},method="PATCH")
         raise
-    print(json.dumps({"state":state,"keyword":kw,"saved":count,"websites_found":websites_found,"emails_found":emails_found,"site_search_queries":searched,"api_calls":session_calls}))
+    print(json.dumps({"country":country,"city":city,"state":state,"keyword":kw,"saved":count,"websites_found":websites_found,"emails_found":emails_found,"site_search_queries":searched,"api_calls":session_calls}))
 
 if __name__=="__main__":
     if not INGEST_URL or not (TOKEN or os.getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")):
