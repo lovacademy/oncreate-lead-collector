@@ -49,3 +49,16 @@ O diagnóstico do GitHub Actions identificou que os campos **ainda não foram co
 **Não coloque `LEAD_SUPABASE_SERVICE_ROLE_KEY` neste repositório.** Enquanto faltar a variável ou o token, o workflow diário não conseguirá gravar candidatos no Supabase.
 
 Links: `Actions > First Email Discovery Verification` para testar com até 3 buscas da Tavily e `Actions > OnCreate Public Healthcare Discovery` para a rotina diária.
+
+
+## Operação noturna autenticada (novembro de 2026)
+
+A coleta funciona **sem chave administrativa do Supabase no repositório público**. O workflow concede apenas `id-token: write`, solicita um token OIDC assinado pelo GitHub Actions e a Edge Function confere assinatura RSA, público-alvo, repositório, IDs imutáveis e branch `main`. `ONCREATE_INGEST_TOKEN` é um fallback legado, não é mais obrigatório para execuções via GitHub Actions.
+
+- **Início do turno:** 00:10 de Brasília (`10 3 * * *` UTC), com duração máxima de 340 minutos.
+- **Complemento:** 05:55 de Brasília (`55 8 * * *` UTC), com duração máxima de 70 minutos.
+- A primeira execução desta madrugada foi iniciada manualmente por um push ao workflow às 02:16 de Brasília.
+- Máximo 15 consultas Tavily por execução noturna (até 30/dia no total); quando o limite de pesquisas acaba, a coleta ainda pode registrar candidatos públicos do NPPES, mas **não produz e-mails confirmados automaticamente**.
+- Execute ou acompanhe em [GitHub Actions → OnCreate Public Healthcare Discovery](https://github.com/lovacademy/oncreate-lead-collector/actions/workflows/collect.yml).
+
+As execuções podem terminar antes se os limites de tempo, crédito, candidatos ou cobertura de fontes forem alcançados. O agendamento do GitHub pode atrasar. O coletor nunca envia e-mails comerciais.
