@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     env:
-      ONCREATE_INGEST_URL: ${{ vars.ONCREATE_INGEST_URL }}
+      ONCREATE_INGEST_URL: ${{ vars.ONCREATE_INGEST_URL || 'https://bolslnqrinkeeqpjwkdr.supabase.co/functions/v1/oncreate-lead-ingest' }}
       ONCREATE_INGEST_TOKEN: ${{ secrets.ONCREATE_INGEST_TOKEN }}
       TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
       DISCOVERY_ENABLE_APOLLO: "false"
