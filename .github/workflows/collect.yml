@@ -1,7 +1,7 @@
 name: OnCreate Public Healthcare Discovery
 
 on:
-  # Updating this workflow also triggers an immediate poll of pending collections.
+  # Geographic checkpoint rollout: poll the pending US/Brazil collection immediately.
   push:
     branches: [main]
     paths:
