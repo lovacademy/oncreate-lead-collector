@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 from daily_lead_discovery import (
     eligible_domain, public_web_url, MailtoParser, nppes_records, possible_official_site,
-    MAX_LEADS, DENIED, email_score, find_public_contact,nppes_physicians
+    MAX_LEADS, DENIED, email_score, find_public_contact,nppes_physicians,tavily_clinic_sites
 )
 
 class DiscoveryTests(unittest.TestCase):
@@ -121,6 +121,31 @@ class DiscoveryTests(unittest.TestCase):
                 {"title":"Other Dental Reviews","url":"https://other.example"}),"")
             self.assertEqual(possible_official_site("Medical Group",
                 {"title":"Medical Group","url":"https://other.example"}),"")
+
+    def test_category_search_yields_multiple_verifiable_clinic_sites(self):
+        sites={"results":[
+         {"title":"North Valley Dermatology | Boston Dermatologist",
+          "url":"https://northvalleydermatology.com/contact",
+          "content":"Medical practice and board-certified dermatologists"},
+         {"title":"South Bay Dermatology — Contact",
+          "url":"https://southbaydermatology.com/",
+          "content":"Dermatology clinic for patients"},
+         {"title":"Doctors on Yelp",
+          "url":"https://www.yelp.com/biz/one","content":"Medical"}
+        ]}
+        evidence={"email":"info@northvalleydermatology.com","source_url":"https://northvalleydermatology.com/contact",
+          "source_type":"mailto","confidence":96,"status":"found","pages_scanned":2}
+        with patch("daily_lead_discovery.fetch_json",return_value=sites),\
+             patch("daily_lead_discovery.public_web_url",side_effect=lambda u:u.split("/contact")[0] if "/contact" in u else u),\
+             patch("daily_lead_discovery.find_public_contact",return_value=evidence),\
+             patch.dict("daily_lead_discovery.os.environ",{"TAVILY_API_KEY":"fake-value"}):
+            rows=tavily_clinic_sites("MA","dermatology")
+        self.assertEqual(len(rows),2)
+        self.assertEqual(rows[0]["source_name"],"website")
+        self.assertEqual(rows[0]["city"],"Boston")
+        self.assertEqual(rows[0]["business_email"],"info@northvalleydermatology.com")
+        self.assertEqual(rows[0]["email_source_type"],"mailto")
+        self.assertEqual(rows[0]["email_confidence"],96)
 
     def test_prevents_third_party_directory_and_chain_misidentification(self):
         with patch("daily_lead_discovery.public_web_url", side_effect=lambda url:url):
