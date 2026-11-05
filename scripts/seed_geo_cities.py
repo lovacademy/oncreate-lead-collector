@@ -56,7 +56,7 @@ def census_places():
         row={str(k).strip().upper():str(v or "").strip() for k,v in row.items()}
         geoid=row.get("GEOID","")
         if len(geoid)<7 or geoid[:2] not in FIPS:continue
-        lat=row.get("INTPTLAT",""),lon=row.get("INTPTLONG","")
+        lat,lon = row.get("INTPTLAT",""),row.get("INTPTLONG","")
         try:latitude=float(lat);longitude=float(lon)
         except (TypeError,ValueError):continue
         raw_name=row.get("NAME","").strip()
