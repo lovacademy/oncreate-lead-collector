@@ -1,4 +1,5 @@
 name: First Email Discovery Verification
+# Re-run to validate signed GitHub OIDC ingestion without requiring a shared secret.
 on:
   push:
     branches: [main]
