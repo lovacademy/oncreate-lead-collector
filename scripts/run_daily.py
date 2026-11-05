@@ -89,6 +89,7 @@ def main():
           "elapsed_min":round((time.monotonic()-start)/60,1)}),flush=True)
 
 if __name__=="__main__":
-    if not os.getenv("ONCREATE_INGEST_TOKEN") or not os.getenv("ONCREATE_INGEST_URL"):
-        sys.exit("ONCREATE_INGEST_TOKEN and ONCREATE_INGEST_URL must be configured as Actions secrets / variables.")
+    if not os.getenv("ONCREATE_INGEST_URL") or not (
+        os.getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN") or os.getenv("ONCREATE_INGEST_TOKEN")):
+        sys.exit("A valid ingest URL and Actions OIDC identity (or private shared intake token) are required.")
     main()
