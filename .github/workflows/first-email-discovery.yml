@@ -17,6 +17,7 @@ jobs:
       TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
       DISCOVERY_STATES: "MA"
       DISCOVERY_KEYWORDS: "dermatology"
+      DISCOVERY_TARGET: "physicians"
       DISCOVERY_MAX_LEADS: "5"
       DISCOVERY_MAX_SEARCHES: "3"
       DISCOVERY_DELAY_SECONDS: "2"
