@@ -1,10 +1,7 @@
 name: First Email Discovery Verification
-# Run signed GitHub OIDC intake with the repository's pinned immutable-ID subject.
+# Safe manual smoke test for signed GitHub OIDC intake.
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/first-email-discovery.yml"
+  # Manual integration check; normal overnight collection has its own schedule.
   workflow_dispatch:
 permissions:
   contents: read
@@ -45,20 +42,6 @@ jobs:
       - name: Missing Tavily API key
         if: ${{ env.TAVILY_API_KEY == '' }}
         run: echo "TAVILY_API_KEY is not set in the public repository."
-      - name: Diagnose public job OIDC claim scope (never logs token)
-        run: |
-          python - <<'PY'
-          import base64,json,os,sys
-          sys.path.insert(0,"scripts")
-          from daily_lead_discovery import github_oidc_token
-          token=github_oidc_token()
-          if not token:sys.exit("OIDC not available")
-          part=token.split(".")[1]
-          claims=json.loads(base64.urlsafe_b64decode(part+"="*((-len(part))%4)))
-          allowed=("iss","aud","sub","repository","ref","repository_visibility",
-                   "workflow_ref","event_name","iat","exp")
-          print(json.dumps({k:claims.get(k) for k in allowed},sort_keys=True))
-          PY
       - name: Capture 5 practice candidates and research up to 3 official websites
         if: ${{ env.ONCREATE_INGEST_URL != '' && env.ONCREATE_INGEST_TOKEN != '' && env.TAVILY_API_KEY != '' }}
         run: python scripts/daily_lead_discovery.py
