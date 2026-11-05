@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 from daily_lead_discovery import (
     eligible_domain, public_web_url, MailtoParser, nppes_records, possible_official_site,
-    MAX_LEADS, DENIED, email_score, find_public_contact
+    MAX_LEADS, DENIED, email_score, find_public_contact,nppes_physicians
 )
 
 class DiscoveryTests(unittest.TestCase):
@@ -91,6 +91,26 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(found[0]["source_key"],"1234567890")
         self.assertEqual(found[0]["business_email"],"")
         self.assertEqual(found[0]["city"],"Albany")
+
+    def test_collects_physicians_not_nurses_and_ignores_mailing_addresses(self):
+        fixture={"results":[
+            {"number":1234567890,"basic":{"first_name":"JANE","last_name":"SMITH","credential":"M.D.","status":"A"},
+             "addresses":[{"address_purpose":"LOCATION","city":"Boston","state":"MA"}],
+             "taxonomies":[{"code":"207N00000X","desc":"Dermatology","primary":True}]},
+            {"number":2222222222,"basic":{"first_name":"ANN","last_name":"RN"},
+             "addresses":[{"address_purpose":"LOCATION","city":"Boston","state":"MA"}],
+             "taxonomies":[{"code":"363L00000X","desc":"Nurse Practitioner"}]},
+            {"number":3333333333,"basic":{"first_name":"JOHN","last_name":"MILLER"},
+             "addresses":[{"address_purpose":"MAILING","city":"Residential","state":"MA"}],
+             "taxonomies":[{"code":"207N00000X","desc":"Dermatology"}]}
+        ]}
+        with patch("daily_lead_discovery.fetch_json",return_value=fixture):
+            rows=list(nppes_physicians("MA","dermatology",20))
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]["company_name"],"Dr. Jane Smith")
+        self.assertEqual(rows[0]["city"],"Boston")
+        self.assertEqual(rows[0]["business_email"],"")
+        self.assertNotIn("phone",rows[0])
 
     def test_official_domain_needs_name_match(self):
         with patch("daily_lead_discovery.public_web_url",return_value="https://acmedental.example"):
