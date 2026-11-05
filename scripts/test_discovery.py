@@ -102,6 +102,22 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(possible_official_site("Medical Group",
                 {"title":"Medical Group","url":"https://other.example"}),"")
 
+    def test_prevents_third_party_directory_and_chain_misidentification(self):
+        with patch("daily_lead_discovery.public_web_url", side_effect=lambda url:url):
+            self.assertEqual(possible_official_site(
+                "ADVANCED HOME CARE SPECIALIST, INC",
+                {"title":"Advanced Home Care Specialist Profile",
+                 "url":"https://profiles.health.ny.gov/practice"}),"")
+            self.assertEqual(possible_official_site(
+                "18TH AVE CARE LLC",
+                {"title":"Health Care | CityMD",
+                 "url":"https://www.citymd.com"}),"")
+            self.assertEqual(possible_official_site(
+                "Mountain Valley Dermatology LLC",
+                {"title":"Mountain Valley Dermatology - Appointments",
+                 "url":"https://mountainvalleyderm.com/contact"}),
+                "https://mountainvalleyderm.com/contact")
+
     def test_daily_bound(self):
         self.assertTrue(1<=MAX_LEADS<=250)
 
