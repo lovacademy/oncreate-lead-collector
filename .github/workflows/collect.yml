@@ -1,13 +1,15 @@
 name: OnCreate Public Healthcare Discovery
 
 on:
-  # Kick off tonight's remaining hours immediately on this operational update.
+  # Updating this workflow also triggers an immediate poll of pending collections.
   push:
     branches: [main]
     paths:
       - ".github/workflows/collect.yml"
   schedule:
-    # 00:10-05:50 Brazil time and 05:55-07:05 (two bounded jobs, each <6h).
+    # Check manually requested collections every 5 minutes (no work if idle).
+    - cron: "*/5 * * * *"
+    # Keep overnight scheduled research as before.
     - cron: "10 3 * * *"
     - cron: "55 8 * * *"
   workflow_dispatch:
@@ -42,8 +44,9 @@ jobs:
       ONCREATE_INGEST_TOKEN: ${{ secrets.ONCREATE_INGEST_TOKEN }}
       TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
       DISCOVERY_ENABLE_APOLLO: "false"
+      COLLECTION_MODE: ${{ (github.event.schedule == '10 3 * * *' || github.event.schedule == '55 8 * * *' || github.event_name == 'workflow_dispatch') && 'scheduled' || 'poll' }}
       DISCOVERY_DELAY_SECONDS: "3"
-      MAX_RUNTIME_MINUTES: ${{ inputs.max_runtime_minutes || (github.event_name == 'push' && '220' || (github.event.schedule == '55 8 * * *' && '70' || '340')) }}
+      MAX_RUNTIME_MINUTES: ${{ inputs.max_runtime_minutes || (github.event.schedule == '55 8 * * *' && '70' || '180') }}
       MAX_DAILY_CANDIDATES: ${{ inputs.max_candidates || '3000' }}
       DISCOVERY_DAILY_SEARCH_CREDITS: "15"
       DISCOVERY_ROUND_CANDIDATES: "80"
