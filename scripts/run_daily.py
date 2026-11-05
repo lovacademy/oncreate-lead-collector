@@ -15,7 +15,8 @@ import time
 
 STATES=("AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN "
         "MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY").split()
-SPECIALTIES=("dental","dermatology","medical","orthopedic","pediatrics","cardiology")
+PHYSICIAN_SPECIALTIES=("dermatology","cardiology","internal_medicine","family_medicine","pediatrics","neurology","orthopedic","obstetrics","psychiatry")
+ORGANIZATION_SPECIALTIES=("medical","hospital","dermatology","pediatrics")
 MAX_MINUTES=max(10,min(340,int(os.environ.get("MAX_RUNTIME_MINUTES","340"))))
 MAX_TOTAL=max(25,min(12000,int(os.environ.get("MAX_DAILY_CANDIDATES","3000"))))
 MAX_ROUND=max(10,min(100,int(os.environ.get("DISCOVERY_ROUND_CANDIDATES","80"))))
@@ -26,20 +27,28 @@ def main():
     start=time.monotonic()
     deadline=start+MAX_MINUTES*60
     seed=dt.datetime.now(dt.timezone.utc).date().toordinal()
-    tasks=list(itertools.product(STATES,SPECIALTIES))
+    # Mix roughly 3 physician-practice searches per organization search.
+    tasks=[]
+    for state in STATES:
+        for i,practice in enumerate(PHYSICIAN_SPECIALTIES):
+            tasks.append((state,practice,"physicians"))
+            if i%3==2:
+                clinic=ORGANIZATION_SPECIALTIES[(i//3)%len(ORGANIZATION_SPECIALTIES)]
+                tasks.append((state,clinic,"organizations"))
     # Rotate combinations each day to cover the US over successive runs.
     tasks=tasks[seed%len(tasks):]+tasks[:seed%len(tasks)]
     count=0
     rounds=0
     searched=0
     errors=0
-    for state,specialty in tasks:
+    for state,specialty,target in tasks:
         if time.monotonic()>deadline-45 or count>=MAX_TOTAL:
             break
         env=os.environ.copy()
         env.update({
             "DISCOVERY_STATES":state,
             "DISCOVERY_KEYWORDS":specialty,
+            "DISCOVERY_TARGET":target,
             "DISCOVERY_MAX_LEADS":str(min(MAX_ROUND,MAX_TOTAL-count)),
             "DISCOVERY_MAX_SEARCHES":str(max(0,SEARCHES-searched)),
             "DISCOVERY_ENABLE_APOLLO": "true" if rounds==0 and
@@ -70,7 +79,7 @@ def main():
         count+=collected
         searched+=counted
         rounds+=1
-        print(json.dumps({"round":rounds,"state":state,"specialty":specialty,
+        print(json.dumps({"round":rounds,"state":state,"specialty":specialty,"target":target,
               "candidates_total":count,"searches_total":searched,
               "elapsed_min":round((time.monotonic()-start)/60,1)}),flush=True)
         # Small pause between sources; each individual source call is also rate limited.
