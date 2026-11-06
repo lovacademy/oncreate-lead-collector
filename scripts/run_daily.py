@@ -57,6 +57,10 @@ def region_queue(regions,country_mode):
         if br:result.append(br)
     return result
 
+def may_spend_search_credits(source_mode,brave_key,tavily_key):
+    """Only an explicit FREE_PLUS job may use any metered search provider."""
+    return source_mode=="FREE_PLUS" and bool(brave_key or tavily_key)
+
 def main():
     mode=os.getenv("COLLECTION_MODE","poll").lower()
     if mode not in ("poll","push","scheduled"):
@@ -95,7 +99,7 @@ def main():
 
     try:
         use_brave=bool(os.getenv("BRAVE_SEARCH_API_KEY"))
-        use_paid=(source_mode=="FREE_PLUS") and (use_brave or bool(os.getenv("TAVILY_API_KEY")))
+        use_paid=may_spend_search_credits(source_mode,os.getenv("BRAVE_SEARCH_API_KEY"),os.getenv("TAVILY_API_KEY"))
         seed_geography()
         # Independent no-credit geographic discovery through permissively licensed
         # OpenStreetMap data. Do not count OSM scans as 153 specialty checks.
