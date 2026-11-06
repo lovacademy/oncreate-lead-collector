@@ -29,7 +29,7 @@ class OSMDiscoveryTests(unittest.TestCase):
 
     def test_no_inbox_lead_without_site_evidence(self):
         row={"type":"node","id":15,"tags":{"name":"Centro Médico Beta",
-             "website":"https://beta.example.org","contact:email":"contato@beta.example.org"}}
+             "website":"https://beta.example.org","contact:email":"contato@outraempresa.org"}}
         with patch("osm_discovery.overpass_results",return_value=[row]), \
              patch("osm_discovery.public_web_url",return_value="https://beta.example.org"), \
              patch("osm_discovery.find_public_contact",return_value={
