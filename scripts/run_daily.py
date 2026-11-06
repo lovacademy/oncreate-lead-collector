@@ -25,17 +25,23 @@ SEARCHES=max(2,min(500,int(os.environ.get("DISCOVERY_DAILY_SEARCH_CREDITS","80")
 MONTHLY_SEARCH_BUDGET=max(50,min(1000,int(os.environ.get("DISCOVERY_MONTHLY_SEARCH_CREDITS","900"))))
 SCRIPT=Path(__file__).parent/"daily_lead_discovery.py"
 
+PRIORITY_STATES={
+    "US":("CA","TX","FL","NY","IL","GA","MA","WA","PA","NC","AZ","CO"),
+    "BR":("SP","RJ","MG","PR","RS","DF","SC","PE","BA","CE","GO","AM")
+}
 def region_queue(regions,country_mode):
-    """Balanced US/BR state rotation, least researched states first."""
+    """Prioritize metro medical markets while rotating across states and countries."""
     grouped={}
     for country in ("US","BR"):
         places=[
             r for r in regions if r["country_code"]==country and
             int(r["completed_cities"])<int(r["total_cities"])
         ]
-        # Finish locations already started before opening many new cities.
+        prioritized=PRIORITY_STATES[country]
         places.sort(key=lambda r:(
-            -int(r["searched_specialties"]),-int(r["visited_cities"]),r["state_code"]
+            0 if r["state_code"] in prioritized else 1,
+            prioritized.index(r["state_code"]) if r["state_code"] in prioritized else 100,
+            -int(r["searched_specialties"]),r["state_code"]
         ))
         grouped[country]=places
     if country_mode=="US":
@@ -106,7 +112,9 @@ def main():
             countries=(["US","BR"] if country_mode=="BOTH" else [country_mode])
             consecutive_failures=0
             country_index=0
-            # Each country keeps its active state/city until all specialty passes finish.
+            region_visits={"US":0,"BR":0}
+            # Each location progresses via its saved specialty cursor; rotate
+            # high-yield states after two passes so one state cannot monopolize credits.
             while (time.monotonic()<deadline-55 and count<MAX_TOTAL and
                    searched+required<=search_limit):
                 if not any(country_regions.get(c) for c in countries):
@@ -163,6 +171,9 @@ def main():
                     notes=(current_region+" • "+str(found)+" novos e-mails • "+
                            str(cursor+1)+"/"+str(TOTAL_SPECIALTIES)+" áreas").strip()[:350]
                     progress()
+                    region_visits[country]+=1
+                    if region_visits[country]%2==0 and len(country_regions[country])>1:
+                        country_regions[country].append(country_regions[country].pop(0))
                     print(json.dumps({
                         "country":country,"state":state,"city":city,
                         "specialty":specialty,"city_completed":cursor+1>=TOTAL_SPECIALTIES,
@@ -188,6 +199,9 @@ def main():
                     except Exception as mark_error:
                         raise RuntimeError("Could not checkpoint retry: "+str(mark_error)) from exc
                     progress()
+                    # Do not let a failing single state block other markets.
+                    if len(country_regions[country])>1:
+                        country_regions[country].append(country_regions[country].pop(0))
                     if consecutive_failures>=3:
                         raise RuntimeError("Três consultas falharam; confira cota Tavily e conexão.")
                 time.sleep(3)
