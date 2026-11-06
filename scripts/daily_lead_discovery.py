@@ -202,8 +202,10 @@ def email_score(email,method,url,site):
     domain=email.rsplit("@",1)[1]
     belongs=domain==host or domain==host.removeprefix("www.") or host.endswith("."+domain)
     base={"mailto":91,"schema":82,"visible":75}[method]
-    return max(0,min(100,base+contact_page_score(parse.urlsplit(url).path)-
-                        (0 if belongs else 18)))
+    # A third-party agency/accountant/booking address is not the practice mailbox.
+    # Keep it out of automated import even when listed on the official website.
+    if not belongs:return min(55,base)
+    return max(0,min(100,base+contact_page_score(parse.urlsplit(url).path)))
 
 def scanner_status(site,found,pages,eligible,blocked):
     if found:return "found"
