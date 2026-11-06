@@ -16,7 +16,7 @@ from urllib import request,parse,error
 from daily_lead_discovery import (
     eligible_domain,public_web_url,find_public_contact,persist
 )
-from cnpj_enrichment import valid_cnpj,public_company_email
+from cnpj_enrichment import valid_cnpj,public_company_email,search_company_cnpj
 from claude_contact_review import triage_contact, stats as claude_stats
 
 OSM_API="https://overpass.private.coffee/api/interpreter"
@@ -109,13 +109,23 @@ def scan_city(country,state,city,latitude,longitude):
     for c in candidates[:MAX_SITES]:
         checked+=1
         evidence=find_public_contact(c["site"])
-        if country=="BR" and not evidence.get("email") and valid_cnpj(c["cnpj"]):
-            host=parse.urlsplit(c["site"]).hostname or ""
-            registered=public_company_email(c["cnpj"],host,state,city)
-            if registered:
-                evidence.update(registered)
-                evidence["status"]="found"
-                evidence["public_cnpj"]=registered["cnpj"]
+        if country=="BR" and not evidence.get("email"):
+            # Prefer a registration published by the practice itself; only
+            # fallback to a strongly matched company name in the same city.
+            cnpj=c["cnpj"] if valid_cnpj(c["cnpj"]) else ""
+            name_lookup=None
+            if not cnpj:
+                name_lookup=search_company_cnpj(c["name"],state,city)
+                cnpj=(name_lookup or {}).get("cnpj","")
+            if cnpj:
+                host=parse.urlsplit(c["site"]).hostname or ""
+                registered=public_company_email(cnpj,host,state,city)
+                if registered:
+                    evidence.update(registered)
+                    evidence["status"]="found"
+                    evidence["public_cnpj"]=registered["cnpj"]
+                    if name_lookup:
+                        evidence["cnpj_lookup_source"]=name_lookup["source_url"]
         if not evidence.get("email"):
             published=c.get("public_email","").lower().strip()
             domain=(parse.urlsplit(c["site"]).hostname or "").removeprefix("www.")
@@ -152,6 +162,8 @@ def scan_city(country,state,city,latitude,longitude):
             "pages_scanned":evidence.get("pages_scanned",0),
             "last_crawled_at":evidence.get("last_crawled_at"),
             "note":("Empresa de dados abertos OSM (© OpenStreetMap contributors). "+
+                    ("Consulta Data Stone: "+evidence["cnpj_lookup_source"]+". "
+                     if evidence.get("cnpj_lookup_source") else "")+
                     ("Email publicado na ficha OSM com domínio compatível com o site oficial. "
                      if evidence.get("source_type")=="osm_listing" else
                      "Contato publicado no site da empresa ou registro validado. ")+
