@@ -43,6 +43,7 @@ jobs:
       ONCREATE_INGEST_URL: ${{ vars.ONCREATE_INGEST_URL || 'https://bolslnqrinkeeqpjwkdr.supabase.co/functions/v1/oncreate-lead-ingest' }}
       ONCREATE_INGEST_TOKEN: ${{ secrets.ONCREATE_INGEST_TOKEN }}
       TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
       DISCOVERY_ENABLE_APOLLO: "false"
       COLLECTION_MODE: ${{ (github.event.schedule == '10 3 * * *' || github.event.schedule == '55 8 * * *' || github.event_name == 'workflow_dispatch') && 'scheduled' || 'poll' }}
       DISCOVERY_DELAY_SECONDS: "3"
