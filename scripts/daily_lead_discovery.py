@@ -15,6 +15,7 @@ from urllib import error, parse, request, robotparser
 from collections import deque
 from html import unescape
 from html.parser import HTMLParser
+from specialties import search_phrases, TOTAL_SPECIALTIES
 
 DENIED = ("zocdoc.com", "tebra.com", "ama-assn.org", "google.com", "bing.com",
           "facebook.com", "instagram.com", "linkedin.com", "yelp.com", "healthgrades.com",
@@ -27,7 +28,7 @@ AGENT = "OnCreate-Lead-Research/1.0 (public contact page review)"
 MAX_LEADS = min(max(int(os.getenv("DISCOVERY_MAX_LEADS", "80")), 1), 250)
 DELAY = max(float(os.getenv("DISCOVERY_DELAY_SECONDS", "3")), 2.0)
 STATES = [s.strip().upper() for s in os.getenv("DISCOVERY_STATES", "NY,CA,FL,TX,MA").split(",") if re.fullmatch(r"[A-Za-z]{2}", s.strip())]
-KEYWORDS = [s.strip() for s in os.getenv("DISCOVERY_KEYWORDS", "dermatology,internal_medicine,pediatrics").split(",") if re.fullmatch(r"[A-Za-z ]{3,35}", s.strip())]
+KEYWORDS = [s.strip() for s in os.getenv("DISCOVERY_KEYWORDS", "dermatology,internal_medicine,pediatrics").split(",") if re.fullmatch(r"[\wÀ-ÿ &/\-]{3,100}", s.strip())]
 INGEST_URL = os.getenv("ONCREATE_INGEST_URL", "").strip()
 TOKEN = os.getenv("ONCREATE_INGEST_TOKEN", "").strip()
 session_calls = 0
@@ -84,7 +85,7 @@ def pg(path, payload=None, method=None, prefer=None):
         req_body = {"action":"candidates","records":[payload]}
     elif path == "collection_control" and payload and payload.get("action") in (
         "collection_claim","collection_progress","collection_complete",
-        "geo_regions","geo_seed","geo_next","geo_mark"
+        "geo_regions","geo_seed","geo_next","geo_mark","geo_budget"
     ):
         req_body = payload
     else:
@@ -100,7 +101,7 @@ def pg(path, payload=None, method=None, prefer=None):
     if req_body["action"]=="run_start":
         if not result.get("id"):raise RuntimeError("The intake endpoint did not create a run")
         return [{"id":result["id"]}]
-    if req_body["action"].startswith(("collection_","geo_")):
+    if req_body["action"].startswith(("collection_","geo_","candidates")):
         return result
     return []
 
@@ -164,10 +165,10 @@ class MailtoParser(HTMLParser):
             self.evidence.append((email,method))
 
 PUBLIC_EMAIL_RE=re.compile(r"(?<![a-zA-Z0-9._%+\-])[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}(?![a-zA-Z0-9])",re.I)
-COMMON_PAGES=("/contact","/contact-us","/contacto","/about","/team","/providers",
-              "/locations","/appointments","/privacy-policy")
-CONTACT_HINTS=("contact","about","team","provider","staff","location",
-               "appointment","privacy","our-practice","get-in-touch")
+COMMON_PAGES=("/contact","/contact-us","/contato","/fale-conosco","/about",
+              "/sobre","/equipe","/team","/providers","/locations","/appointments")
+CONTACT_HINTS=("contact","contato","fale-conosco","sobre","equipe","about",
+               "team","provider","staff","location","appointment","our-practice","get-in-touch")
 MAX_CRAWL_PAGES=7
 
 def contact_page_score(path):
@@ -331,7 +332,7 @@ STATE_SEARCH_CITIES={
  "VT":"Burlington","VA":"Richmond","WA":"Seattle","WV":"Charleston",
  "WI":"Milwaukee","WY":"Cheyenne"
 }
-def tavily_clinic_sites(state,keyword,limit=5):
+def tavily_clinic_sites(state,keyword,limit=20,variant=0):
     """One official-site category search can provide several clinics.
     This prioritizes websites likely to publish real business email addresses
     instead of spending each credit on a single NPPES entry with no site.
@@ -341,12 +342,16 @@ def tavily_clinic_sites(state,keyword,limit=5):
     city=os.getenv("DISCOVERY_CITY","").strip() or STATE_SEARCH_CITIES.get(state,"")
     country=os.getenv("DISCOVERY_COUNTRY","US").strip().upper()
     specialty=keyword.replace("_"," ")
-    if country=="BR":
-        query=f'{specialty} médicos clínicas consultórios em {city} {state} Brasil site oficial contato e-mail'
+    index=int(os.getenv("DISCOVERY_SPECIALTY_INDEX","-1"))
+    if 0<=index<TOTAL_SPECIALTIES:
+        query=search_phrases(country,index)[variant%2]
+    elif country=="BR":
+        query=f"{specialty} médicos clínicas consultórios site oficial contato email"
     else:
-        query=f'{specialty} physician clinics medical practices in {city} {state} USA official website contact'
+        query=f"{specialty} physician clinics medical practice official website contact"
+    query+=" "+city+" "+state+(" Brasil" if country=="BR" else " United States")
     result=fetch_json("https://api.tavily.com/search",{
-       "query":query,"search_depth":"basic","max_results":min(limit,5),
+       "query":query,"search_depth":"basic","max_results":min(limit,20),
        "topic":"general","include_answer":False,"include_raw_content":False
     },{"Authorization":"Bearer "+key})
     rows=[]
@@ -367,7 +372,10 @@ def tavily_clinic_sites(state,keyword,limit=5):
           "cardiol","hospital","medical","health","patient","practice","pediatric",
           "neurolog","orthop","medicine","psychiatr","obstetric",
           "clínica","clinica","médic","medic","consultório","consultorio","saúde","saude",
-          "ginecolog","odontolog","pediatr")):
+          "ginecolog","odontolog","pediatr","nutrition","dietitian","nutritionist",
+          "therap","psycholog","dentist","urolog","endocrin","gastroenter",
+          "nutric","psicolog","terapia","fisioterap","laborator","imagem","sonografia",
+          "cirurgia","chirurg","reabilita","hospitalar","intervencion")):
             continue
         seen.add(site)
         evidence=find_public_contact(site)
@@ -505,8 +513,9 @@ def persist(row):
         return False
     row["business_email"] = email
     row["last_seen_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
-    pg("discovered_leads?on_conflict=source_name,source_key",row,prefer="resolution=merge-duplicates,return=minimal")
-    return True
+    result=pg("discovered_leads?on_conflict=source_name,source_key",row,
+              prefer="resolution=ignore-duplicates,return=representation")
+    return int(result.get("accepted",0))==1
 
 def run():
     today=dt.date.today()
@@ -519,31 +528,36 @@ def run():
     searched=0
     websites_found=0
     emails_found=0
-    search_limit=min(max(int(os.getenv("DISCOVERY_MAX_SEARCHES","15")),0),20)
+    search_limit=min(max(int(os.getenv("DISCOVERY_MAX_SEARCHES","2")),0),3)
     record=pg("discovery_runs",{"source_name":"nppes/apollo","status":"running",
         "notes":"Geographic research: "+country+" / "+state+" / "+city+" / "+kw})
     job=record[0]["id"]
     try:
-        # One broad clinic-site query per round: multiple official websites per Tavily credit.
-        if os.getenv("TAVILY_API_KEY") and searched<search_limit:
-            searched+=1
-            try:
-                for website_row in tavily_clinic_sites(state,kw):
-                    if persist(website_row):
-                        count+=1
-                        websites_found+=1
-                        emails_found+=1
-                    if count>=MAX_LEADS:break
-                    time.sleep(DELAY)
-            except Exception as exc:
-                raise RuntimeError("Official website search unavailable: "+type(exc).__name__) from exc
+        # Two complementary Tavily searches per specialty, max 20 results per search.
+        # Store only unique leads whose business emails were found on official sites.
+        if os.getenv("TAVILY_API_KEY"):
+            for variant in range(search_limit):
+                searched+=1
+                try:
+                    for website_row in tavily_clinic_sites(state,kw,limit=20,variant=variant):
+                        if persist(website_row):
+                            count+=1
+                            websites_found+=1
+                            emails_found+=1
+                        if count>=MAX_LEADS:break
+                        time.sleep(DELAY)
+                except Exception as exc:
+                    raise RuntimeError("Official website search unavailable: "+
+                                       type(exc).__name__) from exc
+                if count>=MAX_LEADS:break
         apollo_enabled = bool(os.getenv("APOLLO_API_KEY")) and os.getenv("DISCOVERY_ENABLE_APOLLO","false").lower()=="true"
         # Email-first: limit NPPES records with no website/email when official-site
         # research is enabled. Spend discovery effort on verifiable practice sites.
         nppes_budget=(max(2,min(10,MAX_LEADS//4)) if os.getenv("TAVILY_API_KEY")
                       else max(1,MAX_LEADS//2) if apollo_enabled else MAX_LEADS)
         individual_searches=0
-        for source in (("nppes","apollo") if country=="US" else ()):
+        for source in (("nppes","apollo") if country=="US" and
+                       os.getenv("DISCOVERY_ENABLE_NPPES","false").lower()=="true" else ()):
             stream=(nppes_physicians(state,kw,min(nppes_budget,80)) if target=="physicians"
                     else nppes_records(state,kw,min(nppes_budget,80))) if source=="nppes" else apollo_records(state,min(MAX_LEADS-nppes_budget,50))
             for row in stream:
