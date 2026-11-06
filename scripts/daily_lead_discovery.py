@@ -17,6 +17,7 @@ from html import unescape
 from html.parser import HTMLParser
 from specialties import search_phrases, TOTAL_SPECIALTIES
 from brave_search import available as brave_available, brave_page
+from cnpj_enrichment import extract_cnpjs, public_company_email
 
 DENIED = ("zocdoc.com", "tebra.com", "ama-assn.org", "google.com", "bing.com",
           "facebook.com", "instagram.com", "linkedin.com", "yelp.com", "healthgrades.com",
@@ -131,6 +132,7 @@ class MailtoParser(HTMLParser):
         super().__init__()
         self.site_hostname=site_hostname.lower().removeprefix("www.")
         self.emails=set()
+        self.cnpjs=set()
         self.evidence=[]  # (email, method)
         self.links=set()
         self._ignore=0
@@ -160,6 +162,8 @@ class MailtoParser(HTMLParser):
         elif self._ignore==0:
             for m in PUBLIC_EMAIL_RE.finditer(unescape(data)):
                 self.add(m.group(0),"visible")
+            for cnpj in extract_cnpjs(unescape(data)):
+                if len(self.cnpjs)<4:self.cnpjs.add(cnpj)
     def add(self,email,method):
         email=email.lower().strip().strip(".,;:")
         # A first-party email published on the practice's own site is a
@@ -227,6 +231,7 @@ def find_public_contact(website):
     queue=deque([site+"/"])
     queued=set(queue)
     found=[]
+    candidate_cnpjs=set()
     blocked=0
     eligible=0
     while queue and evidence["pages_scanned"]<MAX_CRAWL_PAGES:
@@ -249,6 +254,8 @@ def find_public_contact(website):
             evidence["pages_scanned"]+=1
             parser=MailtoParser(host or "")
             parser.feed(html)
+            if url==site+"/" or "/contato" in url or "/contact" in url:
+                candidate_cnpjs.update(parser.cnpjs)
             for email,method in parser.evidence:
                 confidence=email_score(email,method,url,site)
                 if confidence>=65:
@@ -274,6 +281,16 @@ def find_public_contact(website):
         except (OSError,ValueError,error.HTTPError,UnicodeError):
             pass
         time.sleep(DELAY)
+    if not found and os.getenv("DISCOVERY_COUNTRY","US")=="BR":
+        state=os.getenv("DISCOVERY_STATES","").split(",")[0]
+        city=os.getenv("DISCOVERY_CITY","").strip()
+        for cnpj in list(sorted(candidate_cnpjs))[:2]:
+            registry=public_company_email(cnpj,host or "",state,city)
+            if registry:
+                found.append((registry["confidence"],"registry",
+                              registry["email"],registry["source_url"]))
+                evidence["public_cnpj"]=cnpj
+                break
     if found:
         best=max(found,key=lambda t:(t[0],t[1]=="mailto"))
         evidence.update({"email":best[2],"confidence":best[0],
@@ -395,7 +412,9 @@ def public_site_candidates(items,city,state,country,specialty):
           "crawl_status":evidence.get("status","not_found"),
           "pages_scanned":evidence.get("pages_scanned",0),
           "last_crawled_at":evidence.get("last_crawled_at"),
-          "note":"Candidate independent medical practice site; verify identity and published email before CRM import."
+          "note":("Empresa pesquisada em site oficial. CNPJ público confirmado: "+evidence["public_cnpj"]+". "
+                  if evidence.get("public_cnpj") else "")+
+                 "Confirme a identidade e o contato comercial antes de importar ao CRM."
         })
     return rows
 
