@@ -52,6 +52,7 @@ jobs:
       DISCOVERY_DAILY_SEARCH_CREDITS: "80"
       DISCOVERY_MONTHLY_SEARCH_CREDITS: "900"
       DISCOVERY_ROUND_CANDIDATES: "120"
+      DISCOVERY_OSM_CITY_LIMIT: "12"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -65,9 +66,6 @@ jobs:
             echo "Enable GitHub id-token: write and supply an HTTPS intake URL."
             exit 1
           fi
-      # Initialize geographic coverage once, retaining completed-city checkpoints.
-      - name: Seed US Census and Brazil municipality catalog
-        if: github.event_name == 'push'
-        run: python scripts/seed_geo_cities.py
+      # Geographic catalog is seeded on demand inside run_daily.py.
       - name: Collect candidates using permitted sources
         run: python scripts/run_daily.py
