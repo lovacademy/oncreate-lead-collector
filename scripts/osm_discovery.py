@@ -120,9 +120,9 @@ def scan_city(country,state,city,latitude,longitude):
             domain=(parse.urlsplit(c["site"]).hostname or "").removeprefix("www.")
             # OpenStreetMap accepts only intended-to-be-public contact:email
             # tags. Match the official domain and require explicit CRM review.
-            if re.fullmatch(r"[^\\s@<>]+@[^\\s@<>]+\\.[a-z]{2,}",published) and \\
-               published.rsplit("@",1)[-1]==domain and \\
-               published.split("@")[0] not in ("noreply","no-reply","test"):
+            if (re.fullmatch(r"[^\s@<>]+@[^\s@<>]+\.[a-z]{2,}",published) and
+                published.rsplit("@",1)[-1]==domain and
+                published.split("@")[0] not in ("noreply","no-reply","test")):
                 evidence.update({
                     "email":published,"confidence":80,
                     "source_url":c["source_url"],"source_type":"osm_listing",
