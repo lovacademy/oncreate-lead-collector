@@ -9,7 +9,7 @@ class OSMDiscoveryTests(unittest.TestCase):
         query=overpass_query(-21.79,-46.57)
         self.assertIn('["healthcare"]',query)
         self.assertIn('["amenity"~',query)
-        self.assertIn("around:8500",query)
+        self.assertIn("around:5500",query)
         with self.assertRaises(ValueError):overpass_query(200,300)
 
     def test_only_official_public_websites_in_candidate_list(self):
