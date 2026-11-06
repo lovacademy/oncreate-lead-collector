@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/collect.yml"
+      - "scripts/**"
+      - "README.md"
   schedule:
     # Check manually requested collections every 5 minutes (no work if idle).
     - cron: "*/5 * * * *"
