@@ -76,3 +76,79 @@ def public_company_email(cnpj:str,website_host:str,expected_state:str,
         "company_registered_name":str(info.get("razaoSocial") or "")[:160],
         "cnpj":cnpj
     }
+
+
+# Public search endpoint documented by Consulta Data Stone.
+# Source attribution: https://www.datastone.com.br/consulta/api-publica
+# 60/min/IP best-effort; no broad scans, no repeated searches, no personal data.
+SEARCH_API="https://www.datastone.com.br/consulta/api/v1/busca"
+
+def search_company_cnpj(company_name:str, expected_state:str, expected_city:str):
+    """Resolve a CNPJ candidate by name+municipality without guesswork.
+
+    This search only yields a CNPJ when the firm name substantially overlaps the
+    public listing. A physician's name alone will NOT imply ownership of an
+    unrelated corporate registration. The official website must be matched by
+    separate evidence before any contact is accepted.
+    """
+    name=normalized(company_name)
+    state=str(expected_state or "").upper().strip()
+    city=normalized(expected_city)
+    if len(name)<8 or len(name)>150 or not re.fullmatch(r"[A-Z]{2}",state) or len(city)<3:
+        return None
+    generic={"dr","dra","doctor","doutor","doutora","clinica","clinical","medica",
+             "medico","medicos","medicas","servicos","atendimento","consultorio",
+             "de","da","do","das","dos","e","ltda","s","a"}
+    tokens={w for w in re.findall(r"[a-z0-9]{3,}",name) if w not in generic}
+    if len(tokens)<2:
+        return None
+    # No unrestricted pagination or broad first-name-only lookups.
+    query={"q":str(company_name).strip()[:110]}
+    url=SEARCH_API+"?"+parse.urlencode(query)
+    req=request.Request(url,headers={
+        "Accept":"application/json",
+        "User-Agent":"OnCreate-Lead-Research/1.0 (public business verification)"
+    })
+    try:
+        with request.urlopen(req,timeout=8) as res:
+            if int(res.headers.get("Content-Length","0"))>160000:return None
+            payload=json.loads(res.read(160000).decode("utf-8"))
+    except (error.HTTPError,error.URLError,TimeoutError,ValueError,OSError):
+        return None
+    results=payload.get("resultados") if isinstance(payload,dict) else None
+    if not isinstance(results,list):
+        return None
+    best=None
+    for item in results[:10]:
+        if not isinstance(item,dict):
+            continue
+        number="".join(c for c in str(item.get("cnpj") or "") if c.isdigit())
+        if not valid_cnpj(number):
+            continue
+        if str(item.get("uf") or "").upper().strip()!=state:
+            continue
+        if normalized(item.get("cidade"))!=city:
+            continue
+        if normalized(item.get("situacao")) not in ("ativa","ativo"):
+            continue
+        labels=[normalized(item.get("razao_social")), normalized(item.get("nome_fantasia"))]
+        matched=False
+        for label in labels:
+            labeled={w for w in re.findall(r"[a-z0-9]{3,}",label) if w not in generic}
+            if len(labeled)<2:
+                continue
+            overlap=len(tokens & labeled)
+            coverage=overlap/max(len(tokens),len(labeled))
+            if overlap>=2 and coverage>=0.65:
+                matched=True
+                break
+        if not matched:
+            continue
+        if best and best["cnpj"]!=number:
+            # Multiple plausible registrations: require manual adjudication.
+            return None
+        best={"cnpj":number,"source_url":(
+            (item.get("_links") or {}).get("pagina")
+            or "https://www.datastone.com.br/consulta"
+        ),"source_type":"company_name_lookup"}
+    return best
