@@ -7,7 +7,7 @@ Only first-party company-domain addresses are eligible as sales contacts.
 import json
 import re
 from urllib import request, error, parse
-from unicodedata import normalize
+from unicodedata import normalize, combining
 
 CNPJ_RE=re.compile(r"(?<!\d)\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}(?!\d)")
 EMAIL_RE=re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$",re.I)
@@ -15,14 +15,13 @@ API="https://kitana.opencnpj.com/cnpj/"
 
 def normalized(value):
     return "".join(c for c in normalize("NFKD",str(value or "")) if not
-                   __import__("unicodedata").combining(c)).casefold().strip()
+                   combining(c)).casefold().strip()
 
 def valid_cnpj(value:str)->bool:
     digits=re.sub(r"\D","",str(value or ""))
     if len(digits)!=14 or len(set(digits))==1:return False
     def check(nums):
         size=len(nums)
-        weights=list(range(size-7,1,-1))+list(range(9,9-(size-(size-8)), -1))
         # canonical CNPJ weights for 12- and 13-digit bases
         w=([5,4,3,2,9,8,7,6,5,4,3,2] if size==12 else
            [6,5,4,3,2,9,8,7,6,5,4,3,2])
