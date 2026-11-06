@@ -85,17 +85,18 @@ def main():
             raise RuntimeError("Collection heartbeat was not accepted")
 
     try:
-        if not os.getenv("TAVILY_API_KEY"):
-            raise RuntimeError("A busca geográfica requer TAVILY_API_KEY no GitHub Actions para localizar sites oficiais.")
+        use_brave=bool(os.getenv("BRAVE_SEARCH_API_KEY"))
+        if not use_brave and not os.getenv("TAVILY_API_KEY"):
+            raise RuntimeError("Configure Brave Search API ou Tavily como provedor de busca autorizado.")
         seed_geography()
         budget=intake("collection_control",{"action":"geo_budget","job_id":job_id})
         available=max(0,MONTHLY_SEARCH_BUDGET-int(budget.get("used_this_month",0)))
         search_limit=min(SEARCHES,available)
-        # Every completed specialty requires two complementary category queries.
-        search_limit=search_limit-(search_limit%2)
+        required=10 if use_brave else 2
+        if not use_brave:search_limit-=(search_limit%2)
         regions=intake("collection_control",{"action":"geo_regions"})["regions"]
         regions=region_queue(regions,country_mode)
-        if search_limit<2:
+        if search_limit<required:
             notes="Créditos mensais reservados esgotados. Reinício após renovação da cota."
         elif not regions:
             notes="Todas as localidades concluídas ou nenhuma região pendente."
@@ -107,7 +108,7 @@ def main():
             country_index=0
             # Each country keeps its active state/city until all specialty passes finish.
             while (time.monotonic()<deadline-55 and count<MAX_TOTAL and
-                   searched+2<=search_limit):
+                   searched+required<=search_limit):
                 if not any(country_regions.get(c) for c in countries):
                     break
                 country=countries[country_index%len(countries)]
@@ -136,7 +137,7 @@ def main():
                     "DISCOVERY_SPECIALTY_INDEX":str(cursor),
                     "DISCOVERY_TARGET":"organizations",
                     "DISCOVERY_MAX_LEADS":str(min(MAX_ROUND,MAX_TOTAL-count)),
-                    "DISCOVERY_MAX_SEARCHES":"2",
+                    "DISCOVERY_MAX_SEARCHES":str(required),
                     "DISCOVERY_ENABLE_NPPES":"false",
                     "DISCOVERY_ENABLE_APOLLO":"false"
                 })
@@ -148,8 +149,8 @@ def main():
                         raise RuntimeError("Source query: "+result.stderr[-230:])
                     payload=json.loads(result.stdout.strip().splitlines()[-1])
                     queries=int(payload.get("site_search_queries") or 0)
-                    if queries!=2:
-                        raise RuntimeError("Specialty checkpoint needs two official-site searches")
+                    if queries<1 or queries>required:
+                        raise RuntimeError("Specialty checkpoint search count is outside its quota")
                     found=max(0,int(payload.get("saved",0)))
                     checked=intake("collection_control",{
                         "action":"geo_mark","job_id":job_id,"city_id":candidate["id"],
