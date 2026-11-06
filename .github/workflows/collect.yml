@@ -1,7 +1,7 @@
 name: OnCreate Public Healthcare Discovery
 
 on:
-  # Geographic checkpoint rollout: poll the pending US/Brazil collection immediately.
+  # Free OpenStreetMap and first-party registry validation run (no search API credits).
   push:
     branches: [main]
     paths:
