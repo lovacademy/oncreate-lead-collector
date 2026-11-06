@@ -88,7 +88,8 @@ def pg(path, payload=None, method=None, prefer=None):
         req_body = {"action":"candidates","records":[payload]}
     elif path == "collection_control" and payload and payload.get("action") in (
         "collection_claim","collection_progress","collection_complete",
-        "geo_regions","geo_seed","geo_next","geo_mark","geo_budget"
+        "geo_regions","geo_seed","geo_next","geo_mark","geo_budget",
+        "geo_osm_next","geo_osm_mark"
     ):
         req_body = payload
     else:
