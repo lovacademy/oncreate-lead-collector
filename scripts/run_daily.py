@@ -164,7 +164,8 @@ def main():
             time.sleep(3)
         budget=intake("collection_control",{"action":"geo_budget","job_id":job_id})
         available=max(0,MONTHLY_SEARCH_BUDGET-int(budget.get("used_this_month",0)))
-        search_limit=min(SEARCHES,available) if use_paid else 0
+        # Do not spend search credits when free open-data discovery was productive.
+        search_limit=(min(SEARCHES,available) if use_paid and count<20 else 0)
         required=10 if use_brave else 2
         if not use_brave:search_limit-=(search_limit%2)
         regions=intake("collection_control",{"action":"geo_regions"})["regions"]
