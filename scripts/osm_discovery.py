@@ -55,6 +55,7 @@ def medical_candidates(elements):
     candidates=[]
     seen=set()
     for entry in elements:
+        if len(candidates)>=MAX_SITES*3:break
         if not isinstance(entry,dict):continue
         tags=entry.get("tags") or {}
         if not isinstance(tags,dict):continue
