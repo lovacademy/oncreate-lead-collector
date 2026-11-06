@@ -144,8 +144,11 @@ def scan_city(country,state,city,latitude,longitude):
             "crawl_status":evidence.get("status","found"),
             "pages_scanned":evidence.get("pages_scanned",0),
             "last_crawled_at":evidence.get("last_crawled_at"),
-            "note":"Empresa localizada em dados abertos OSM (© OpenStreetMap contributors). "
-                   "Contato verificado no site oficial; revisão humana obrigatória antes do CRM."
+            "note":("Empresa de dados abertos OSM (© OpenStreetMap contributors). "+
+                    ("Email publicado na ficha OSM com domínio compatível com o site oficial. "
+                     if evidence.get("source_type")=="osm_listing" else
+                     "Contato publicado no site da empresa ou registro validado. ")+
+                    "Conferir identidade antes de importar ao CRM.")
         }
         if persist(row):saved+=1
         time.sleep(0.6)
