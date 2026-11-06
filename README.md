@@ -79,3 +79,17 @@ As execuções podem terminar antes se os limites de tempo, crédito, candidatos
 Preço de referência em 06/11/2026 (consulte atualizações): Claude Haiku 5.5 a partir de US$ 0,10 por milhão de tokens de entrada e US$ 0,50 por milhão de tokens de saída para prompts até 100 mil tokens. O custo depende dos tokens efetivamente faturados. Fontes oficiais: https://platform.claude.com/docs/en/about-claude/pricing e https://platform.claude.com/docs/en/models/haiku-5-5/overview.
 
 A automação de envio de e-mails é independente; origem pública, revisão e exclusões continuam obrigatórias.
+
+
+## Pesquisa gratuita por nome da empresa e CNPJ
+
+Para estabelecimentos médicos brasileiros identificados via OSM, o coletor agora tenta resolver o CNPJ em uma fonte de busca pública **Consulta Data Stone** (https://www.datastone.com.br/consulta/api-publica), se o CNPJ não estiver na própria ficha.
+
+- Busca usando o nome comercial conhecido, sem varrer resultados indiscriminadamente.
+- Aceita a associação apenas com correspondência consistente de nome, município e UF e situação cadastral ativa.
+- Verifica o cadastro pela API OpenCNPJ e aproveita e-mail **somente se o domínio for o mesmo do site oficial do consultório**.
+- Registra atribuição à Consulta Data Stone na evidência quando essa fonte for utilizada.
+- Se o médico aparecer por um nome e a pessoa jurídica tiver nome completamente diferente, nenhum vínculo é fabricado. O caso deve ser revisado manualmente com fontes adicionais.
+- A busca pública gratuita é sujeita a limites/instabilidade da fonte (60 consultas por minuto por IP na documentação consultada).
+
+Nos EUA, EIN não é um método universal de localizar e-mails. O código valida apenas informações específicas de empresas registradas na SEC quando identificadores públicos foram publicados.
