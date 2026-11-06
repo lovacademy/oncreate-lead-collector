@@ -59,7 +59,9 @@ def region_queue(regions,country_mode):
 
 def may_spend_search_credits(source_mode,brave_key,tavily_key):
     """Only an explicit FREE_PLUS job may use any metered search provider."""
-    return source_mode=="FREE_PLUS" and bool(brave_key or tavily_key)
+    return (source_mode=="FREE_PLUS" and
+            os.getenv("ALLOW_METERED_SEARCH","false").lower()=="true" and
+            bool(brave_key or tavily_key))
 
 def main():
     mode=os.getenv("COLLECTION_MODE","poll").lower()
@@ -79,6 +81,8 @@ def main():
     job_id=job["id"]
     country_mode=job.get("country_mode","BOTH")
     source_mode=job.get("source_mode","FREE_ONLY")
+    # Child processes inherit this explicit mode; FREE_ONLY never calls Claude.
+    os.environ["DISCOVERY_SOURCE_MODE"]=source_mode
     max_minutes=min(MAX_MINUTES,int(job.get("max_runtime_minutes") or MAX_MINUTES))
     start=time.monotonic()
     deadline=start+max_minutes*60
