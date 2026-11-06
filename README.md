@@ -62,3 +62,20 @@ A coleta funciona **sem chave administrativa do Supabase no repositório públic
 - Execute ou acompanhe em [GitHub Actions → OnCreate Public Healthcare Discovery](https://github.com/lovacademy/oncreate-lead-collector/actions/workflows/collect.yml).
 
 As execuções podem terminar antes se os limites de tempo, crédito, candidatos ou cobertura de fontes forem alcançados. O agendamento do GitHub pode atrasar. O coletor nunca envia e-mails comerciais.
+
+
+## Revisão de contatos com Claude Haiku (novembro de 2026)
+
+- **FREE_ONLY**: OpenStreetMap + verificação de sites e registros públicos. Não gasta créditos de pesquisa nem tokens de IA.
+- **FREE_PLUS**: mantém as fontes gratuitas e, somente com a secret ANTHROPIC_API_KEY disponível, revisa evidências ambíguas de endereços comerciais publicados com claude-haiku-5-5.
+- Por padrão, buscas cobradas por Tavily/Brave ficam DESLIGADAS (ALLOW_METERED_SEARCH=false no workflow), mesmo se houver chaves antigas.
+- Claude não faz busca no Google/Maps, não encontra endereços inexistentes, não verifica entregabilidade, não substitui verificação documental, não concede consentimento.
+- Cada subprocesso pode fazer no máximo duas revisões de contatos por cidade com CLAUDE_MAX_CALLS_PER_CITY=2 e max_tokens=160.
+- O coletor desqualifica e-mails cujo domínio não é do site oficial para evitar contatos de contabilidade/agências terceirizadas.
+- Limite do OSM: raio de 2,6 km e até 8 sites por cidade para reduzir timeouts urbanos; não corresponde a uma cobertura completa da cidade.
+
+**Ativação da IA:** adicionar ANTHROPIC_API_KEY exclusivamente em GitHub Actions Secrets do repositório público (nunca em código ou frontend), escolher o modo com Claude no CRM e manter CLAUDE_CONTACT_REVIEW=true. Sem essa secret, o custo Anthropic é zero.
+
+Preço de referência em 06/11/2026 (consulte atualizações): Claude Haiku 5.5 a partir de US$ 0,10 por milhão de tokens de entrada e US$ 0,50 por milhão de tokens de saída para prompts até 100 mil tokens. O custo depende dos tokens efetivamente faturados. Fontes oficiais: https://platform.claude.com/docs/en/about-claude/pricing e https://platform.claude.com/docs/en/models/haiku-5-5/overview.
+
+A automação de envio de e-mails é independente; origem pública, revisão e exclusões continuam obrigatórias.
