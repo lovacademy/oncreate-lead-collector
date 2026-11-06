@@ -17,6 +17,7 @@ from daily_lead_discovery import (
     eligible_domain,public_web_url,find_public_contact,persist
 )
 from cnpj_enrichment import valid_cnpj,public_company_email
+from claude_contact_review import triage_contact, stats as claude_stats
 
 OSM_API="https://overpass.private.coffee/api/interpreter"
 OSM_FALLBACK="https://overpass-api.de/api/interpreter"
@@ -128,6 +129,12 @@ def scan_city(country,state,city,latitude,longitude):
                     "source_url":c["source_url"],"source_type":"osm_listing",
                     "status":"found"
                 })
+        if evidence.get("email") and int(evidence.get("confidence") or 0)>=65:
+            verdict=triage_contact(c["name"],c["site"],evidence["email"],
+                                   evidence.get("source_url",""),evidence.get("source_type",""))
+            if verdict=="needs_review":
+                # No automated CRM import of contacts flagged as third parties.
+                evidence["confidence"]=min(55,int(evidence["confidence"]))
         if not evidence.get("email") or int(evidence.get("confidence") or 0)<65:
             continue
         row={
@@ -154,7 +161,8 @@ def scan_city(country,state,city,latitude,longitude):
         time.sleep(0.6)
     return {
         "saved":saved,"sites_found":len(candidates),"sites_checked":checked,
-        "free_source_requests":1,"source":"openstreetmap_overpass"
+        "free_source_requests":1,"source":"openstreetmap_overpass",
+        **claude_stats()
     }
 
 def main():
