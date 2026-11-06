@@ -48,8 +48,9 @@ jobs:
       DISCOVERY_DELAY_SECONDS: "3"
       MAX_RUNTIME_MINUTES: ${{ inputs.max_runtime_minutes || (github.event.schedule == '55 8 * * *' && '70' || '180') }}
       MAX_DAILY_CANDIDATES: ${{ inputs.max_candidates || '3000' }}
-      DISCOVERY_DAILY_SEARCH_CREDITS: "15"
-      DISCOVERY_ROUND_CANDIDATES: "80"
+      DISCOVERY_DAILY_SEARCH_CREDITS: "80"
+      DISCOVERY_MONTHLY_SEARCH_CREDITS: "900"
+      DISCOVERY_ROUND_CANDIDATES: "120"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
