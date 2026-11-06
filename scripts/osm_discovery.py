@@ -97,6 +97,13 @@ def scan_city(country,state,city,latitude,longitude):
     for c in candidates[:MAX_SITES]:
         checked+=1
         evidence=find_public_contact(c["site"])
+        if country=="BR" and not evidence.get("email") and valid_cnpj(c["cnpj"]):
+            host=parse.urlsplit(c["site"]).hostname or ""
+            registered=public_company_email(c["cnpj"],host,state,city)
+            if registered:
+                evidence.update(registered)
+                evidence["status"]="found"
+                evidence["public_cnpj"]=registered["cnpj"]
         if not evidence.get("email") or int(evidence.get("confidence") or 0)<65:
             continue
         row={
