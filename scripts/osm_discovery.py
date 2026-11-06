@@ -9,6 +9,7 @@ first-party CNPJ email) before the lead can enter the CRM import pipeline.
 import datetime as dt
 import json
 import os
+import re
 import time
 from urllib import request,parse,error
 
@@ -93,7 +94,8 @@ def medical_candidates(elements):
         candidates.append({
             "site":site,"name":title,"specialty":specialty,
             "source_url":f"https://www.openstreetmap.org/{osm_type}/{ident}",
-            "cnpj":str(tags.get("ref:cnpj") or tags.get("cnpj") or "").strip()
+            "cnpj":str(tags.get("ref:cnpj") or tags.get("cnpj") or "").strip(),
+            "public_email":str(tags.get("contact:email") or tags.get("email") or "").strip()
         })
     return candidates
 
@@ -113,6 +115,19 @@ def scan_city(country,state,city,latitude,longitude):
                 evidence.update(registered)
                 evidence["status"]="found"
                 evidence["public_cnpj"]=registered["cnpj"]
+        if not evidence.get("email"):
+            published=c.get("public_email","").lower().strip()
+            domain=(parse.urlsplit(c["site"]).hostname or "").removeprefix("www.")
+            # OpenStreetMap accepts only intended-to-be-public contact:email
+            # tags. Match the official domain and require explicit CRM review.
+            if re.fullmatch(r"[^\\s@<>]+@[^\\s@<>]+\\.[a-z]{2,}",published) and \\
+               published.rsplit("@",1)[-1]==domain and \\
+               published.split("@")[0] not in ("noreply","no-reply","test"):
+                evidence.update({
+                    "email":published,"confidence":80,
+                    "source_url":c["source_url"],"source_type":"osm_listing",
+                    "status":"found"
+                })
         if not evidence.get("email") or int(evidence.get("confidence") or 0)<65:
             continue
         row={
