@@ -74,6 +74,7 @@ def main():
         return
     job_id=job["id"]
     country_mode=job.get("country_mode","BOTH")
+    source_mode=job.get("source_mode","FREE_ONLY")
     max_minutes=min(MAX_MINUTES,int(job.get("max_runtime_minutes") or MAX_MINUTES))
     start=time.monotonic()
     deadline=start+max_minutes*60
@@ -94,7 +95,7 @@ def main():
 
     try:
         use_brave=bool(os.getenv("BRAVE_SEARCH_API_KEY"))
-        use_paid=use_brave or bool(os.getenv("TAVILY_API_KEY"))
+        use_paid=(source_mode=="FREE_PLUS") and (use_brave or bool(os.getenv("TAVILY_API_KEY")))
         seed_geography()
         # Independent no-credit geographic discovery through permissively licensed
         # OpenStreetMap data. Do not count OSM scans as 153 specialty checks.
@@ -171,7 +172,7 @@ def main():
         regions=intake("collection_control",{"action":"geo_regions"})["regions"]
         regions=region_queue(regions,country_mode)
         if search_limit<required:
-            if not free_scans and not use_paid:notes="Sem provedor pago; OSM gratuito sem cidades elegíveis nesta rodada."
+            if not free_scans and not use_paid:notes="Somente fontes gratuitas: nenhuma cidade concluída pelo mapa aberto nesta rodada."
             elif not use_paid:notes="Pesquisa OSM gratuita concluída. Especialidades aguardam provedor web."
             else:notes="Créditos mensais reservados esgotados. Coleta OSM gratuita mantida."
         elif not regions:
