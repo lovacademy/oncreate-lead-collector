@@ -21,20 +21,20 @@ from cnpj_enrichment import valid_cnpj,public_company_email
 OSM_API="https://overpass.private.coffee/api/interpreter"
 OSM_FALLBACK="https://overpass-api.de/api/interpreter"
 USER_AGENT="OnCreate-Healthcare-Discovery/1.0 (contact: oncreateagencia@gmail.com)"
-MAX_SITES=22
+MAX_SITES=8
 
-def overpass_query(lat,lon,radius=5500):
+def overpass_query(lat,lon,radius=2600):
     lat=float(lat);lon=float(lon)
     if not (-90<=lat<=90 and -180<=lon<=180):
         raise ValueError("City coordinates invalid")
     radius=max(1800,min(16000,int(radius)))
     center=f"{radius},{lat:.6f},{lon:.6f}"
     return (
-      "[out:json][timeout:22];("
+      "[out:json][timeout:16];("
       f'nwr(around:{center})["healthcare"];'
       f'nwr(around:{center})["amenity"~"^(doctors|dentist|clinic|hospital)$"];'
       f'nwr(around:{center})["office"~"^(physician|therapist)$"];'
-      ");out center 220;"
+      ");out center 100;"
     )
 
 def overpass_results(latitude,longitude):
@@ -46,7 +46,7 @@ def overpass_results(latitude,longitude):
             "Content-Type":"application/x-www-form-urlencoded"
         })
         try:
-            with request.urlopen(req,timeout=29) as res:
+            with request.urlopen(req,timeout=20) as res:
                 body=res.read(1400000)
                 if len(body)>=1400000:raise RuntimeError("OSM response exceeds query bound")
                 result=json.loads(body.decode("utf-8"))
