@@ -126,8 +126,9 @@ def public_web_url(url):
 
 class MailtoParser(HTMLParser):
     """Read published generic addresses and same-domain contact navigation."""
-    def __init__(self):
+    def __init__(self,site_hostname=""):
         super().__init__()
+        self.site_hostname=site_hostname.lower().removeprefix("www.")
         self.emails=set()
         self.evidence=[]  # (email, method)
         self.links=set()
@@ -160,7 +161,13 @@ class MailtoParser(HTMLParser):
                 self.add(m.group(0),"visible")
     def add(self,email,method):
         email=email.lower().strip().strip(".,;:")
-        if EMAIL_RE.fullmatch(email) and ROLE_RE.match(email):
+        # A first-party email published on the practice's own site is a
+        # business contact even if it is not an "info@" role address.
+        # Third-party free-mail contacts still require a published role address.
+        domain=email.rsplit("@",1)[-1].lower()
+        first_party=bool(self.site_hostname and domain==self.site_hostname)
+        forbidden=email.split("@",1)[0] in {"noreply","no-reply","donotreply","test","example"}
+        if EMAIL_RE.fullmatch(email) and not forbidden and (ROLE_RE.match(email) or first_party):
             self.emails.add(email)
             self.evidence.append((email,method))
 
@@ -239,7 +246,7 @@ def find_public_contact(website):
                 if int(res.headers.get("Content-Length","0"))>350000:continue
                 html=res.read(350000).decode("utf-8","replace")
             evidence["pages_scanned"]+=1
-            parser=MailtoParser()
+            parser=MailtoParser(host or "")
             parser.feed(html)
             for email,method in parser.evidence:
                 confidence=email_score(email,method,url,site)
