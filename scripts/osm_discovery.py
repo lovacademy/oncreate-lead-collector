@@ -13,8 +13,9 @@ import time
 from urllib import request,parse,error
 
 from daily_lead_discovery import (
-    DENIED,eligible_domain,public_web_url,find_public_contact,persist
+    eligible_domain,public_web_url,find_public_contact,persist
 )
+from cnpj_enrichment import valid_cnpj,public_company_email
 
 OSM_API="https://overpass-api.de/api/interpreter"
 USER_AGENT="OnCreate-Healthcare-Discovery/1.0 (contact: oncreateagencia@gmail.com)"
@@ -82,7 +83,8 @@ def medical_candidates(elements):
                       "medical practice")[:100]
         candidates.append({
             "site":site,"name":title,"specialty":specialty,
-            "source_url":f"https://www.openstreetmap.org/{osm_type}/{ident}"
+            "source_url":f"https://www.openstreetmap.org/{osm_type}/{ident}",
+            "cnpj":str(tags.get("ref:cnpj") or tags.get("cnpj") or "").strip()
         })
     return candidates
 
