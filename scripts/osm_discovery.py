@@ -17,40 +17,49 @@ from daily_lead_discovery import (
 )
 from cnpj_enrichment import valid_cnpj,public_company_email
 
-OSM_API="https://overpass-api.de/api/interpreter"
+OSM_API="https://overpass.private.coffee/api/interpreter"
+OSM_FALLBACK="https://overpass-api.de/api/interpreter"
 USER_AGENT="OnCreate-Healthcare-Discovery/1.0 (contact: oncreateagencia@gmail.com)"
 MAX_SITES=22
 
-def overpass_query(lat,lon,radius=8500):
+def overpass_query(lat,lon,radius=5500):
     lat=float(lat);lon=float(lon)
     if not (-90<=lat<=90 and -180<=lon<=180):
         raise ValueError("City coordinates invalid")
     radius=max(1800,min(16000,int(radius)))
     center=f"{radius},{lat:.6f},{lon:.6f}"
     return (
-      "[out:json][timeout:28];("
+      "[out:json][timeout:22];("
       f'nwr(around:{center})["healthcare"];'
       f'nwr(around:{center})["amenity"~"^(doctors|dentist|clinic|hospital)$"];'
       f'nwr(around:{center})["office"~"^(physician|therapist)$"];'
-      ");out center 600;"
+      ");out center 220;"
     )
 
 def overpass_results(latitude,longitude):
     payload=parse.urlencode({"data":overpass_query(latitude,longitude)}).encode()
-    req=request.Request(OSM_API,data=payload,method="POST",headers={
-        "User-Agent":USER_AGENT,"Accept":"application/json",
-        "Content-Type":"application/x-www-form-urlencoded"
-    })
-    try:
-        with request.urlopen(req,timeout=38) as res:
-            body=res.read(2800000)
-            if len(body)>=2800000:raise RuntimeError("OSM city response too large")
-            result=json.loads(body.decode("utf-8"))
-    except error.HTTPError as exc:
-        raise RuntimeError("Public OSM API unavailable: HTTP "+str(exc.code)) from exc
-    if not isinstance(result.get("elements"),list):
-        raise RuntimeError("OSM returned no element collection")
-    return result["elements"]
+    failure=None
+    for endpoint in (OSM_API,OSM_FALLBACK):
+        req=request.Request(endpoint,data=payload,method="POST",headers={
+            "User-Agent":USER_AGENT,"Accept":"application/json",
+            "Content-Type":"application/x-www-form-urlencoded"
+        })
+        try:
+            with request.urlopen(req,timeout=29) as res:
+                body=res.read(1400000)
+                if len(body)>=1400000:raise RuntimeError("OSM response exceeds query bound")
+                result=json.loads(body.decode("utf-8"))
+            if result.get("remark"):
+                raise RuntimeError("OSM query was incomplete")
+            if not isinstance(result.get("elements"),list):
+                raise RuntimeError("OSM result has no elements list")
+            return result["elements"]
+        except (error.HTTPError,error.URLError,OSError,ValueError,TimeoutError,RuntimeError) as exc:
+            failure=type(exc).__name__
+            if isinstance(exc,error.HTTPError) and exc.code in (400,401,403):
+                break
+    raise RuntimeError("OSM free query unavailable (retry later): "+str(failure))
+
 
 def medical_candidates(elements):
     candidates=[]
