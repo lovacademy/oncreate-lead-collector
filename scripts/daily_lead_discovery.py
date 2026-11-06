@@ -541,7 +541,7 @@ def run():
     searched=0
     websites_found=0
     emails_found=0
-    search_limit=min(max(int(os.getenv("DISCOVERY_MAX_SEARCHES","2")),0),3)
+    search_limit=min(max(int(os.getenv("DISCOVERY_MAX_SEARCHES","2")),0),10 if brave_available() else 3)
     record=pg("discovery_runs",{"source_name":"nppes/apollo","status":"running",
         "notes":"Geographic research: "+country+" / "+state+" / "+city+" / "+kw})
     job=record[0]["id"]
