@@ -180,9 +180,6 @@ def main():
                         "saved_unique_emails":found,"queries_total":searched,
                         "elapsed_min":round((time.monotonic()-start)/60,1)
                     }),flush=True)
-                    if cursor+1>=TOTAL_SPECIALTIES:
-                        # Continue in the next state, not the same city forever.
-                        country_regions[country].pop(0)
                 except subprocess.TimeoutExpired:
                     notes="Tempo máximo atingido em "+current_region+"; pesquisa será retomada."
                     break
