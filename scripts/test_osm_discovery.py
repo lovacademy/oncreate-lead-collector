@@ -9,7 +9,7 @@ class OSMDiscoveryTests(unittest.TestCase):
         query=overpass_query(-21.79,-46.57)
         self.assertIn('["healthcare"]',query)
         self.assertIn('["amenity"~',query)
-        self.assertIn("around:5500",query)
+        self.assertIn("around:2600",query)
         with self.assertRaises(ValueError):overpass_query(200,300)
 
     def test_only_official_public_websites_in_candidate_list(self):
@@ -34,6 +34,7 @@ class OSMDiscoveryTests(unittest.TestCase):
              patch("osm_discovery.public_web_url",return_value="https://beta.example.org"), \
              patch("osm_discovery.find_public_contact",return_value={
                  "email":"","confidence":0,"status":"not_found"}), \
+             patch("osm_discovery.search_company_cnpj",return_value=None), \
              patch("osm_discovery.persist") as save:
             result=scan_city("BR","MG","Poços de Caldas",-21.79,-46.57)
             self.assertEqual(result["saved"],0)
