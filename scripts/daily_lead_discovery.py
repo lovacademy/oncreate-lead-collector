@@ -16,6 +16,7 @@ from collections import deque
 from html import unescape
 from html.parser import HTMLParser
 from specialties import search_phrases, TOTAL_SPECIALTIES
+from brave_search import available as brave_available, brave_page
 
 DENIED = ("zocdoc.com", "tebra.com", "ama-assn.org", "google.com", "bing.com",
           "facebook.com", "instagram.com", "linkedin.com", "yelp.com", "healthgrades.com",
@@ -339,13 +340,7 @@ STATE_SEARCH_CITIES={
  "VT":"Burlington","VA":"Richmond","WA":"Seattle","WV":"Charleston",
  "WI":"Milwaukee","WY":"Cheyenne"
 }
-def tavily_clinic_sites(state,keyword,limit=20,variant=0):
-    """One official-site category search can provide several clinics.
-    This prioritizes websites likely to publish real business email addresses
-    instead of spending each credit on a single NPPES entry with no site.
-    """
-    key=os.getenv("TAVILY_API_KEY","")
-    if not key:return []
+def clinic_search_query(state,keyword,variant=0):
     city=os.getenv("DISCOVERY_CITY","").strip() or STATE_SEARCH_CITIES.get(state,"")
     country=os.getenv("DISCOVERY_COUNTRY","US").strip().upper()
     specialty=keyword.replace("_"," ")
@@ -356,14 +351,13 @@ def tavily_clinic_sites(state,keyword,limit=20,variant=0):
         query=f"{specialty} médicos clínicas consultórios site oficial contato email"
     else:
         query=f"{specialty} physician clinics medical practice official website contact"
-    query+=" "+city+" "+state+(" Brasil" if country=="BR" else " United States")
-    result=fetch_json("https://api.tavily.com/search",{
-       "query":query,"search_depth":"basic","max_results":min(limit,20),
-       "topic":"general","include_answer":False,"include_raw_content":False
-    },{"Authorization":"Bearer "+key})
+    return query+" "+city+" "+state+(" Brasil" if country=="BR" else " United States")
+
+def public_site_candidates(items,city,state,country,specialty):
+    """Validate independently published clinic sites; ignore search snippets as email evidence."""
     rows=[]
     seen=set()
-    for item in result.get("results",[]):
+    for item in items:
         title=str(item.get("title") or "").strip()
         parts=[name.strip() for name in re.split(r"\s+[|–—-]\s+",title)]
         generic={"contact","contact us","home","about","about us","locations","services","appointments"}
@@ -404,6 +398,18 @@ def tavily_clinic_sites(state,keyword,limit=20,variant=0):
           "note":"Candidate independent medical practice site; verify identity and published email before CRM import."
         })
     return rows
+
+def tavily_clinic_sites(state,keyword,limit=20,variant=0):
+    key=os.getenv("TAVILY_API_KEY","")
+    if not key:return []
+    city=os.getenv("DISCOVERY_CITY","").strip() or STATE_SEARCH_CITIES.get(state,"")
+    country=os.getenv("DISCOVERY_COUNTRY","US").strip().upper()
+    query=clinic_search_query(state,keyword,variant)
+    result=fetch_json("https://api.tavily.com/search",{
+       "query":query,"search_depth":"basic","max_results":min(limit,20),
+       "topic":"general","include_answer":False,"include_raw_content":False
+    },{"Authorization":"Bearer "+key})
+    return public_site_candidates(result.get("results",[]),city,state,country,keyword.replace("_"," "))
 
 def tavily_site_for(name,city,state):
     """Legacy two-value helper retained for manually enriching staged leads."""
@@ -540,10 +546,24 @@ def run():
         "notes":"Geographic research: "+country+" / "+state+" / "+city+" / "+kw})
     job=record[0]["id"]
     try:
-        # Two complementary Tavily searches per specialty, max 20 results per search.
-        # Store only unique leads whose business emails were found on official sites.
-        if os.getenv("TAVILY_API_KEY"):
-            for variant in range(search_limit):
+        # Use the documented Brave web API if configured, otherwise Tavily.
+        # Brave can traverse up to ten API pages, not scraped Google Maps.
+        if brave_available():
+            query=clinic_search_query(state,kw,0)
+            max_pages=min(10,search_limit)
+            for page in range(max_pages):
+                results,more=brave_page(query,country,page)
+                searched+=1
+                for website_row in public_site_candidates(results,city,state,country,kw.replace("_"," ")):
+                    if persist(website_row):
+                        count+=1
+                        websites_found+=1
+                        emails_found+=1
+                    if count>=MAX_LEADS:break
+                    time.sleep(DELAY)
+                if not more or count>=MAX_LEADS:break
+        elif os.getenv("TAVILY_API_KEY"):
+            for variant in range(min(search_limit,2)):
                 searched+=1
                 try:
                     for website_row in tavily_clinic_sites(state,kw,limit=20,variant=variant):
@@ -554,9 +574,10 @@ def run():
                         if count>=MAX_LEADS:break
                         time.sleep(DELAY)
                 except Exception as exc:
-                    raise RuntimeError("Official website search unavailable: "+
-                                       type(exc).__name__) from exc
+                    raise RuntimeError("Official site search unavailable: "+type(exc).__name__) from exc
                 if count>=MAX_LEADS:break
+        else:
+            raise RuntimeError("Configure BRAVE_SEARCH_API_KEY or TAVILY_API_KEY for web discovery.")
         apollo_enabled = bool(os.getenv("APOLLO_API_KEY")) and os.getenv("DISCOVERY_ENABLE_APOLLO","false").lower()=="true"
         # Email-first: limit NPPES records with no website/email when official-site
         # research is enabled. Spend discovery effort on verifiable practice sites.
