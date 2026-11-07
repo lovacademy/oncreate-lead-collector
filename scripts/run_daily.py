@@ -239,7 +239,10 @@ def main():
                     progress()
                 except Exception as exc:
                     errors+=1
-                    notes=("Claude Web indisponível: "+type(exc).__name__)[:350]
+                    # Child script prints a sanitized HTTP status or exception type.
+                    # Preserve the useful last line (e.g. HTTP 429/529) for diagnostics.
+                    reason=str(exc).strip().splitlines()[-1] if str(exc).strip() else type(exc).__name__
+                    notes=("Claude Web indisponível: "+reason[:190])[:350]
                     try:
                         intake("collection_control",{
                             "action":"geo_mark","job_id":job_id,"city_id":next_city["id"],
