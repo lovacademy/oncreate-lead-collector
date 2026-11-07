@@ -76,7 +76,7 @@ def phone_number(raw,country):
     """Format *business listing* phones as E.164, not private-number enrichment."""
     digits=re.sub(r"\D","",str(raw or "").split("ext",1)[0])
     if country=="BR":
-        if len(digits) in (10,11) and digits[:2]!="00" and digits[0:2]!="55":
+        if len(digits) in (10,11) and digits[:2]!="00":
             return "+55"+digits
         if len(digits) in (12,13) and digits.startswith("55"):
             return "+"+digits
@@ -192,6 +192,9 @@ def research(site):
     state=site["state"]
     city=site["city"]
     host=site["website_domain"]
+    os.environ["DISCOVERY_COUNTRY"]=country
+    os.environ["DISCOVERY_STATES"]=state
+    os.environ["DISCOVERY_CITY"]=city
     landing=crawl_business_pages(site["website"],country)
     # Use existing validated 7-page crawler; preserves email checks and source evidence.
     evidence=find_public_contact(site["website"])
