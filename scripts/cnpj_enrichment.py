@@ -79,9 +79,9 @@ def public_company_email(cnpj:str,website_host:str,expected_state:str,
 
 
 # Public search endpoint documented by Consulta Data Stone.
-# Source attribution: https://www.datastone.com.br/consulta/api-publica
+# Source attribution: https://consulta.datastone.com.br/api-publica
 # 60/min/IP best-effort; no broad scans, no repeated searches, no personal data.
-SEARCH_API="https://www.datastone.com.br/consulta/api/v1/busca"
+SEARCH_API="https://consulta.datastone.com.br/api/v1/busca"
 
 def search_company_cnpj(company_name:str, expected_state:str, expected_city:str):
     """Resolve a CNPJ candidate by name+municipality without guesswork.
@@ -149,6 +149,6 @@ def search_company_cnpj(company_name:str, expected_state:str, expected_city:str)
             return None
         best={"cnpj":number,"source_url":(
             (item.get("_links") or {}).get("pagina")
-            or "https://www.datastone.com.br/consulta"
+            or "https://consulta.datastone.com.br"
         ),"source_type":"company_name_lookup"}
     return best
