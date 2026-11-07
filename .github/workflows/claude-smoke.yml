@@ -36,7 +36,7 @@ jobs:
               "thinking":{"type":"disabled"},
               "output_config":{"effort":"low"},
               "system":"Return a tiny JSON verdict for a synthetic test only. Never include any credentials.",
-              "messages":[{"role":"user","content":"Return exactly: {\\"verdict\\":\\"ok\\"}"}],
+              "messages":[{"role":"user","content":"Reply with only OK."}],
           }
           req=request.Request(
               "https://api.anthropic.com/v1/messages",
@@ -64,7 +64,7 @@ jobs:
               sys.exit(1)
           usage=result.get("usage") or {}
           text="".join(str(p.get("text","")) for p in result.get("content",[]) if p.get("type")=="text")
-          if '"verdict"' not in text or '"ok"' not in text:
+          if text.strip().upper() != "OK":
               print("CLAUDE_SMOKE=RESPONSE_MISMATCH")
               sys.exit(1)
           print("CLAUDE_SMOKE=SUCCESS model="+str(result.get("model","")))
