@@ -277,7 +277,7 @@ def research(site):
           "research_data":details
         }
         result=pg("research_control",{"action":"research_phone_candidate",
-                        "job_id":os.environ["COLLECTION_JOB_ID"],
+                        "job_id":os.getenv("COLLECTION_JOB_ID",""),
                         "id":site["id"],"lead":lead})
         phone_saved=int(result.get("accepted") or 0)
     return {"email_saved":email_saved,"phone_saved":phone_saved,"details":details}
