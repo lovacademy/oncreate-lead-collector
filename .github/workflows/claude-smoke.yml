@@ -1,0 +1,74 @@
+name: OnCreate Claude Haiku credential smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/claude-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-claude:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - name: Confirm Claude Haiku 5.5 credentials with one bounded, synthetic API request
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          from urllib import request, error
+          key=os.getenv("ANTHROPIC_API_KEY","").strip()
+          if not key:
+              print("CLAUDE_SMOKE=KEY_MISSING: configure the repo Actions secret.")
+              sys.exit(1)
+          payload={
+              "model":"claude-haiku-5-5",
+              "max_tokens":64,
+              "thinking":{"type":"disabled"},
+              "output_config":{"effort":"low"},
+              "system":"Return a tiny JSON verdict for a synthetic test only. Never include any credentials.",
+              "messages":[{"role":"user","content":"Return exactly: {\\"verdict\\":\\"ok\\"}"}],
+          }
+          req=request.Request(
+              "https://api.anthropic.com/v1/messages",
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "x-api-key":key,
+                  "anthropic-version":"2023-06-01",
+                  "content-type":"application/json",
+              },
+              method="POST"
+          )
+          try:
+              with request.urlopen(req, timeout=20) as response:
+                  result=json.loads(response.read(12000).decode("utf-8"))
+          except error.HTTPError as exc:
+              print("CLAUDE_SMOKE=HTTP_ERROR status="+str(exc.code))
+              try:
+                  body=json.loads(exc.read(2000).decode("utf-8"))
+                  print("error_type="+str((body.get("error") or {}).get("type","unknown"))[:80])
+              except Exception:
+                  pass
+              sys.exit(1)
+          except Exception as exc:
+              print("CLAUDE_SMOKE=NETWORK_ERROR type="+type(exc).__name__)
+              sys.exit(1)
+          usage=result.get("usage") or {}
+          text="".join(str(p.get("text","")) for p in result.get("content",[]) if p.get("type")=="text")
+          if '"verdict"' not in text or '"ok"' not in text:
+              print("CLAUDE_SMOKE=RESPONSE_MISMATCH")
+              sys.exit(1)
+          print("CLAUDE_SMOKE=SUCCESS model="+str(result.get("model","")))
+          print("input_tokens="+str(usage.get("input_tokens",0)))
+          print("output_tokens="+str(usage.get("output_tokens",0)))
+          print("Single synthetic request; no lead data sent.")
+          PY
