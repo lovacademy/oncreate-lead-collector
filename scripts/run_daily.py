@@ -87,6 +87,8 @@ def main():
     start=time.monotonic()
     deadline=start+max_minutes*60
     count=0;rounds=0;searched=0;free_scans=0;errors=0
+    claude_calls=0;claude_input=0;claude_output=0
+    claude_run_cap=max(0,min(24,int(os.getenv("CLAUDE_RUN_MAX_CALLS","8"))))
     status="completed";notes=""
     current_region=""
 
@@ -136,7 +138,8 @@ def main():
                 "DISCOVERY_COUNTRY":country,"DISCOVERY_CITY":candidate["city_name"],
                 "DISCOVERY_STATES":region["state_code"],
                 "DISCOVERY_LATITUDE":str(candidate["latitude"]),
-                "DISCOVERY_LONGITUDE":str(candidate["longitude"])
+                "DISCOVERY_LONGITUDE":str(candidate["longitude"]),
+                "CLAUDE_MAX_CALLS_PER_CITY":str(max(0,min(2,claude_run_cap-claude_calls)))
             })
             try:
                 result=subprocess.run([sys.executable,str(OSM_SCRIPT)],env=env,
@@ -146,6 +149,9 @@ def main():
                     raise RuntimeError(result.stderr[-200:] or "OSM scan failed")
                 payload=json.loads(result.stdout.strip().splitlines()[-1])
                 found=int(payload.get("saved") or 0)
+                claude_calls+=min(2,max(0,int(payload.get("claude_calls") or 0)))
+                claude_input+=max(0,int(payload.get("claude_input_tokens") or 0))
+                claude_output+=max(0,int(payload.get("claude_output_tokens") or 0))
                 ack=intake("collection_control",{
                     "action":"geo_osm_mark","job_id":job_id,
                     "city_id":candidate["id"],"succeeded":True,"found_emails":found
@@ -154,7 +160,8 @@ def main():
                 free_scans+=1
                 count+=found
                 notes=("Fonte gratuita OSM • "+current_region+
-                      " • "+str(found)+" novos e-mails validados")[:350]
+                      " • "+str(found)+" novos e-mails validados"+
+                      (" • Claude: "+str(claude_calls)+" análises" if claude_calls else ""))[:350]
                 progress()
                 osm_failures=0
             except Exception as exc:
@@ -257,7 +264,10 @@ def main():
                         "country":country,"state":state,"city":city,
                         "specialty":specialty,"city_completed":cursor+1>=TOTAL_SPECIALTIES,
                         "saved_unique_emails":found,"queries_total":searched,
-                        "elapsed_min":round((time.monotonic()-start)/60,1)
+                        "elapsed_min":round((time.monotonic()-start)/60,1),
+        "claude_calls":claude_calls,"claude_input_tokens":claude_input,
+        "claude_output_tokens":claude_output,
+        "claude_estimated_usd":round((claude_input*0.10+claude_output*0.50)/1_000_000,6)
                     }),flush=True)
                 except subprocess.TimeoutExpired:
                     notes="Tempo máximo atingido em "+current_region+"; pesquisa será retomada."
