@@ -219,6 +219,9 @@ def main():
                     claude_web_requests+=searches
                     claude_web_input+=max(0,int(result.get("claude_web_input_tokens") or 0))
                     claude_web_output+=max(0,int(result.get("claude_web_output_tokens") or 0))
+                    claude_calls+=min(2,max(0,int(result.get("claude_calls") or 0)))
+                    claude_input+=max(0,int(result.get("claude_input_tokens") or 0))
+                    claude_output+=max(0,int(result.get("claude_output_tokens") or 0))
                     count+=saved
                     searched+=searches
                     ack=intake("collection_control",{
