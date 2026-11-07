@@ -15,14 +15,15 @@ import unicodedata
 from urllib import error, parse, request
 
 from daily_lead_discovery import (
-    eligible_domain, public_web_url, find_public_contact, persist
+    eligible_domain, public_web_url, find_public_contact, persist, pg
 )
 from claude_contact_review import triage_contact, stats as claude_stats
 from cnpj_enrichment import valid_cnpj, public_company_email
 
 ENDPOINT="https://api.anthropic.com/v1/messages"
 MODEL="claude-haiku-5-5"
-MAX_SITES=4
+MAX_SITES=20
+IMMEDIATE_SITES=4
 UNTRUSTED_HOSTS={
     "facebook.com","instagram.com","linkedin.com","google.com",
     "youtube.com","tiktok.com","x.com","doctoralia.com.br",
@@ -79,7 +80,7 @@ def search_results(country,state,city,specialty):
     if country not in ("BR","US") or not re.fullmatch(r"[A-Z]{2}",state) or not city or not specialty:
         raise ValueError("Valid country/state/city/specialty required")
     locale="Brazil" if country=="BR" else "United States"
-    query=(f"Search the current web for up to 6 official websites of medical clinics or "
+    query=(f"Search the current web for up to 15 official websites of medical clinics or "
            f"healthcare practices specializing in {specialty} in {city}, {state}, {locale}. "
            "Use web search at least once. Do not include directories, social networks, "
            "news sites or personal email addresses. Report only names and their official "
@@ -129,7 +130,20 @@ def scan_city(country,state,city,specialty):
     result=search_results(country,state,city,specialty)
     checked=0
     saved=0
-    for c in result["sites"]:
+    queued=0
+    job_id=os.getenv("COLLECTION_JOB_ID","")
+    if job_id and result["sites"]:
+        batch=[{
+            "country_code":country,"state":state,"city":city,
+            "specialty":specialty,"website":"https://"+c["host"],
+            "company_name":c["name"],"source_url":c["url"]
+        } for c in result["sites"]]
+        # Store search candidates even when this first pass finds no email.
+        # They are investigated one by one in a resumable, no-search-credit queue.
+        response=pg("research_control",{"action":"research_enqueue",
+                       "job_id":job_id,"sites":batch})
+        queued=int(response.get("accepted") or 0)
+    for c in result["sites"][:IMMEDIATE_SITES]:
         website=public_web_url(c["url"])
         if not website:continue
         checked+=1
@@ -172,6 +186,7 @@ def scan_city(country,state,city,specialty):
     output_tokens=result["output_tokens"]
     billed=result["search_requests"]
     return {"saved":saved,"sites_found":len(result["sites"]),
+            "sites_queued":queued,
             **claude_stats(),
             "sites_checked":checked,"search_requests":billed,
             "claude_web_input_tokens":input_tokens,
