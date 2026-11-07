@@ -93,3 +93,33 @@ Para estabelecimentos médicos brasileiros identificados via OSM, o coletor agor
 - A busca pública gratuita é sujeita a limites/instabilidade da fonte (60 consultas por minuto por IP na documentação consultada).
 
 Nos EUA, EIN não é um método universal de localizar e-mails. O código valida apenas informações específicas de empresas registradas na SEC quando identificadores públicos foram publicados.
+
+
+## Busca web oficial do Claude (US$ 0,01 por pesquisa)
+
+A integração opcional com Claude Haiku 5.5 também suporta a ferramenta oficial
+Anthropic web_search_20250305. É um método de descoberta de sites diferente de
+scraping de Google/Google Maps e não exige créditos de Tavily ou Brave.
+
+- **FREE_ONLY:** sem Claude e sem buscas pagas; OpenStreetMap e registros públicos.
+- **FREE_PLUS:** no máximo 2 pesquisas de web search por execução
+  (US$ 0,02 no máximo pelo serviço de buscas, mais tokens da IA).
+- Busca por especialidade + cidade + estado, solicita até 6 sites oficiais e valida
+  os links retornados contra os URLs originais da busca oficial.
+- Analisa até 4 sites e só cadastra candidatos com e-mail publicado diretamente
+  em domínio oficial do estabelecimento. Diretórios, redes sociais, e-mails de
+  terceiros e páginas sem comprovação não são importados automaticamente.
+- Deduplicação é aplicada no banco pelo domínio; nenhuma pesquisa confere consentimento
+  de marketing. Revisão manual precede importação ao CRM.
+- Custo estimado e quantidade de pesquisas aparecem no JSON de conclusão do GitHub Actions.
+- As fontes públicas OpenStreetMap/Overpass podem ficar sobrecarregadas; a busca Claude
+  atua como caminho secundário quando a fonte geográfica falha.
+
+Preço oficial consultado em 07/11/2026: US$ 10/1.000 consultas web
+(US$ 0,01 cada) mais tokens do modelo. Fonte:
+https://platform.claude.com/docs/en/about-claude/pricing
+
+**Limites técnicos:** CLAUDE_WEB_SEARCH_MAX_PER_RUN=2, max_uses=1 por
+solicitação, CLAUDE_RUN_MAX_CALLS=8 para classificação. Buscas Tavily/Brave
+permanecem desabilitadas por ALLOW_METERED_SEARCH=false. A chave só reside em
+GitHub Actions Secrets.
