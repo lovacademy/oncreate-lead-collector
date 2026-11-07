@@ -123,3 +123,40 @@ https://platform.claude.com/docs/en/about-claude/pricing
 solicitação, CLAUDE_RUN_MAX_CALLS=8 para classificação. Buscas Tavily/Brave
 permanecem desabilitadas por ALLOW_METERED_SEARCH=false. A chave só reside em
 GitHub Actions Secrets.
+
+
+## Investigação persistente de sites e oportunidades com telefone
+
+A nova arquitetura reaproveita a pesquisa do Claude ao máximo e não amplia,
+por padrão, as 2 buscas web cobradas por execução em FREE_PLUS. A busca
+retorna os sites oficiais que realmente apareceram no resultado; o Python
+cadastra cada domínio novo em `lead_site_research` e investiga até 80
+sites por execução, com conclusão/retry registrados no Supabase.
+
+- Site pesquisado: título, descrição, H1, viewport mobile, Open Graph,
+  contatos públicos, URLs analisadas e indícios técnicos objetivos.
+- No Brasil: CNPJ publicado no próprio site ou encontrado por comparação
+  estrita de razão social/cidade/UF; consulta gratuita ao OpenCNPJ; somente
+  dados do estabelecimento (razão social, fantasia, CNAEs, endereço comercial,
+  data de abertura, situação e telefone).
+- Com e-mail comercial publicado e verificado: mantém o pipeline prévio
+  `discovered_leads`, sujeito a revisão manual e importação ao CRM.
+- Sem e-mail comercial comprovado: encaminha **somente** aqueles com telefone
+  comercial verificável, duas ou mais falhas técnicas objetivas e pontuação
+  de oportunidade >=65 à tabela `phone_only_leads`, separada do CRM.
+- `phone_only_leads` não contém coluna de e-mail, não se conecta ao
+  `contacts` nem pode gerar `email_campaign_drafts` ou `email_jobs`.
+  É uma fila exclusiva de análise humana para vendedor; não dispara ligações
+  ou mensagens.
+- Os sites bloqueados por robots/HTTP não são classificados artificialmente
+  como "sem e-mail". Nenhuma avaliação de qualidade é visual/definitiva:
+  são apenas indicadores documentados que exigem confirmação do vendedor.
+- Nunca são extraídos dados de sócios, CPFs ou telefones pessoais do quadro
+  societário. E-mails externos à empresa não são importados.
+- Cada consulta e investigação tem timeout, retries com backoff e limite
+  de duração total de 340 min, conservando 10 min de margem para o job.
+- GitHub Actions pode encerrar antes caso a fila ou o orçamento se esgote.
+  O próximo job retoma os sites pendentes sem chamar o Claude novamente.
+
+Documentação das fontes públicas:
+https://opencnpj.com/api e https://consulta.datastone.com.br/api-publica.
