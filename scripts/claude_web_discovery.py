@@ -17,7 +17,7 @@ from urllib import error, parse, request
 from daily_lead_discovery import (
     eligible_domain, public_web_url, find_public_contact, persist
 )
-from claude_contact_review import triage_contact
+from claude_contact_review import triage_contact, stats as claude_stats
 from cnpj_enrichment import valid_cnpj, public_company_email
 
 ENDPOINT="https://api.anthropic.com/v1/messages"
@@ -172,6 +172,7 @@ def scan_city(country,state,city,specialty):
     output_tokens=result["output_tokens"]
     billed=result["search_requests"]
     return {"saved":saved,"sites_found":len(result["sites"]),
+            **claude_stats(),
             "sites_checked":checked,"search_requests":billed,
             "claude_web_input_tokens":input_tokens,
             "claude_web_output_tokens":output_tokens,
