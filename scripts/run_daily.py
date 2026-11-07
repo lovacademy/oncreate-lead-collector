@@ -25,6 +25,7 @@ SEARCHES=max(2,min(500,int(os.environ.get("DISCOVERY_DAILY_SEARCH_CREDITS","80")
 MONTHLY_SEARCH_BUDGET=max(50,min(1000,int(os.environ.get("DISCOVERY_MONTHLY_SEARCH_CREDITS","900"))))
 SCRIPT=Path(__file__).parent/"daily_lead_discovery.py"
 OSM_SCRIPT=Path(__file__).parent/"osm_discovery.py"
+CLAUDE_WEB_SCRIPT=Path(__file__).parent/"claude_web_discovery.py"
 OSM_CITY_LIMIT=max(1,min(12,int(os.environ.get("DISCOVERY_OSM_CITY_LIMIT","8"))))
 
 PRIORITY_STATES={
@@ -88,6 +89,8 @@ def main():
     deadline=start+max_minutes*60
     count=0;rounds=0;searched=0;free_scans=0;errors=0
     claude_calls=0;claude_input=0;claude_output=0
+    claude_web_requests=0;claude_web_input=0;claude_web_output=0
+    claude_web_cap=max(0,min(3,int(os.getenv("CLAUDE_WEB_SEARCH_MAX_PER_RUN","2"))))
     claude_run_cap=max(0,min(24,int(os.getenv("CLAUDE_RUN_MAX_CALLS","8"))))
     status="completed";notes=""
     current_region=""
@@ -178,6 +181,71 @@ def main():
                 progress()
                 if osm_failures>=2:break
             time.sleep(3)
+        # Claude web search costs $0.01 per search plus Haiku tokens.
+        # No Tavily/Brave, no Google Maps scraping. Strict per-run cap.
+        if source_mode=="FREE_PLUS" and os.getenv("CLAUDE_WEB_SEARCH","false").lower()=="true" and os.getenv("ANTHROPIC_API_KEY"):
+            countries=[country_mode] if country_mode!="BOTH" else ["BR","US"]
+            remaining_web=claude_web_cap
+            for ix in range(claude_web_cap):
+                if remaining_web<=0 or time.monotonic()>deadline-75:break
+                country=countries[ix%len(countries)]
+                areas=[r for r in free_regions if r["country_code"]==country]
+                if not areas:continue
+                state=areas[ix%len(areas)]["state_code"]
+                next_city=intake("collection_control",{
+                    "action":"geo_next","job_id":job_id,
+                    "country_code":country,"state_code":state
+                }).get("city")
+                if not next_city:continue
+                city=next_city["city_name"]
+                cursor=int(next_city["specialty_cursor"])
+                if not 0<=cursor<TOTAL_SPECIALTIES:continue
+                specialty=specialty_at(country,cursor)
+                env=os.environ.copy()
+                env.update({
+                    "DISCOVERY_COUNTRY":country,"DISCOVERY_STATES":state,
+                    "DISCOVERY_CITY":city,"DISCOVERY_KEYWORDS":specialty,
+                    "CLAUDE_MAX_CALLS_PER_CITY":str(max(0,min(2,claude_run_cap-claude_calls)))
+                })
+                try:
+                    proc=subprocess.run([sys.executable,str(CLAUDE_WEB_SCRIPT)],env=env,
+                        timeout=min(150,max(30,int(deadline-time.monotonic()-20))),
+                        capture_output=True,text=True)
+                    if proc.returncode!=0:
+                        raise RuntimeError((proc.stderr or "Claude web query failed")[-170:])
+                    result=json.loads(proc.stdout.strip().splitlines()[-1])
+                    searches=min(1,max(0,int(result.get("search_requests") or 0)))
+                    saved=max(0,int(result.get("saved") or 0))
+                    claude_web_requests+=searches
+                    claude_web_input+=max(0,int(result.get("claude_web_input_tokens") or 0))
+                    claude_web_output+=max(0,int(result.get("claude_web_output_tokens") or 0))
+                    count+=saved
+                    searched+=searches
+                    ack=intake("collection_control",{
+                        "action":"geo_mark","job_id":job_id,"city_id":next_city["id"],
+                        "expected_cursor":cursor,"succeeded":bool(searches),
+                        "found_emails":saved,"error":"" if searches else "Claude did not invoke web search"
+                    })
+                    if not ack.get("ok"):
+                        raise RuntimeError("Claude web geographic checkpoint rejected")
+                    rounds+=int(bool(searches))
+                    notes=("Claude Web • "+country+" / "+state+" / "+city+" / "+specialty+
+                        " • "+str(saved)+" novos e-mails • US$ "+
+                        format((claude_web_requests*.01+(claude_web_input*.10+
+                          claude_web_output*.50)/1_000_000),".4f")+" aprox.")[:350]
+                    progress()
+                except Exception as exc:
+                    errors+=1
+                    notes=("Claude Web indisponível: "+type(exc).__name__)[:350]
+                    try:
+                        intake("collection_control",{
+                            "action":"geo_mark","job_id":job_id,"city_id":next_city["id"],
+                            "expected_cursor":cursor,"succeeded":False,
+                            "error":notes
+                        })
+                    except Exception:pass
+                    progress()
+                remaining_web-=1
         budget=intake("collection_control",{"action":"geo_budget","job_id":job_id})
         available=max(0,MONTHLY_SEARCH_BUDGET-int(budget.get("used_this_month",0)))
         # Do not spend search credits when free open-data discovery was productive.
@@ -187,7 +255,13 @@ def main():
         regions=intake("collection_control",{"action":"geo_regions"})["regions"]
         regions=region_queue(regions,country_mode)
         if search_limit<required:
-            if not free_scans and not use_paid:notes="Somente fontes gratuitas: nenhuma cidade concluída pelo mapa aberto nesta rodada."
+            if claude_web_requests:
+                notes=("Claude Web: "+str(claude_web_requests)+" pesquisa(s) e "+
+                       str(count)+" novos e-mails nesta rodada • custo ~US$ "+
+                       format(claude_web_requests*.01+(claude_web_input*.10+
+                              claude_web_output*.50)/1_000_000,".4f"))
+            elif not free_scans and not use_paid:
+                notes="Fontes abertas indisponíveis; Claude Web não concluiu pesquisas nesta rodada."
             elif not use_paid:notes="Pesquisa OSM gratuita concluída. Especialidades aguardam provedor web."
             else:notes="Créditos mensais reservados esgotados. Coleta OSM gratuita mantida."
         elif not regions:
@@ -267,7 +341,10 @@ def main():
                         "elapsed_min":round((time.monotonic()-start)/60,1),
         "claude_calls":claude_calls,"claude_input_tokens":claude_input,
         "claude_output_tokens":claude_output,
-        "claude_estimated_usd":round((claude_input*0.10+claude_output*0.50)/1_000_000,6)
+        "claude_estimated_usd":round((claude_input*0.10+claude_output*0.50)/1_000_000,6),
+        "claude_web_search_requests":claude_web_requests,
+        "claude_web_estimated_usd":round(claude_web_requests*.01+
+            (claude_web_input*.10+claude_web_output*.50)/1_000_000,5)
                     }),flush=True)
                 except subprocess.TimeoutExpired:
                     notes="Tempo máximo atingido em "+current_region+"; pesquisa será retomada."
