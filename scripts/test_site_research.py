@@ -64,6 +64,20 @@ class SiteResearchTests(unittest.TestCase):
         self.assertEqual(result["email_saved"],1)
         self.assertEqual(result["phone_saved"],0)
         phone_write.assert_not_called()
+    def test_www_email_is_recognized_before_phone_only_classification(self):
+        """A bare-domain redirect must not create a false no-email lead."""
+        with patch("site_research.crawl_business_pages",return_value=dict(LANDING)),\
+             patch("site_research.find_public_contact",
+                   side_effect=[dict(NO_MAIL),dict(GOOD_MAIL)]),\
+             patch("site_research.public_web_url",return_value="https://www.clinicateste.com.br"),\
+             patch("site_research.search_company_cnpj",return_value=None),\
+             patch("site_research.pg") as phone_write,\\
+             patch("site_research.persist",return_value=True):
+            result=research(SITE)
+        self.assertEqual(result["email_saved"],1)
+        self.assertEqual(result["phone_saved"],0)
+        phone_write.assert_not_called()
+
     def test_healthy_site_is_not_phone_sales_lead(self):
         healthy=dict(LANDING,issues=["missing_social_preview"],score=21)
         with patch("site_research.crawl_business_pages",return_value=healthy),\
