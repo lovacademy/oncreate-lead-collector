@@ -110,10 +110,17 @@ def crawl_business_pages(website,country):
     site=public_web_url(website)
     if not site:raise RuntimeError("Official business domain is not safe to visit")
     host=parse.urlsplit(site).hostname
-    class NoRedirect(request.HTTPRedirectHandler):
+    root_host=(host or "").removeprefix("www.")
+    allowed_hosts={root_host,"www."+root_host}
+    class SafeFirstPartyRedirect(request.HTTPRedirectHandler):
         def redirect_request(self,req,fp,code,msg,headers,newurl):
-            return None
-    opener=request.build_opener(request.HTTPHandler(),request.HTTPSHandler(),NoRedirect)
+            parsed=parse.urlsplit(newurl)
+            if (parsed.scheme!="https" or parsed.username or parsed.password or
+                parsed.port or parsed.hostname not in allowed_hosts or
+                not public_web_url(newurl)):
+                return None
+            return super().redirect_request(req,fp,code,msg,headers,newurl)
+    opener=request.build_opener(request.HTTPHandler(),request.HTTPSHandler(),SafeFirstPartyRedirect)
     rules=robotparser.RobotFileParser()
     try:
         r=request.Request(site+"/robots.txt",headers={"User-Agent":USER_AGENT})
@@ -141,7 +148,7 @@ def crawl_business_pages(website,country):
             req=request.Request(url,headers={"User-Agent":USER_AGENT,"Accept":"text/html"})
             with opener.open(req,timeout=9) as res:
                 final=parse.urlsplit(res.geturl())
-                if (final.scheme!="https" or final.hostname!=host or
+                if (final.scheme!="https" or final.hostname not in allowed_hosts or
                     "text/html" not in res.headers.get("Content-Type","")):
                     continue
                 if int(res.headers.get("Content-Length","0"))>MAX_HTML:continue
@@ -166,7 +173,7 @@ def crawl_business_pages(website,country):
             for link in parser.links:
                 next_url=parse.urljoin(site+"/",link)
                 u=parse.urlsplit(next_url)
-                if (u.scheme=="https" and u.hostname==host and not u.query and
+                if (u.scheme=="https" and u.hostname in allowed_hosts and not u.query and
                     any(h in u.path.lower() for h in ("contact","contato","fale-conosco","about","sobre"))):
                     link_url=site+(u.path.rstrip("/") or "/")
                     if link_url not in queue:queue.append(link_url)
@@ -198,6 +205,16 @@ def research(site):
     landing=crawl_business_pages(site["website"],country)
     # Use existing validated 7-page crawler; preserves email checks and source evidence.
     evidence=find_public_contact(site["website"])
+    # Many official websites resolve their homepage at www while discovery
+    # stores the bare domain; verify that first-party alternative as well.
+    if (not evidence.get("email") and
+        parse.urlsplit(site["website"]).hostname==host and
+        not host.startswith("www.")):
+        alt=public_web_url("https://www."+host)
+        if alt:
+            alternate=find_public_contact(alt)
+            if int(alternate.get("confidence") or 0)>int(evidence.get("confidence") or 0):
+                evidence=alternate
     cnpj=landing["cnpjs"][0] if landing["cnpjs"] and country=="BR" else ""
     registry=None
     if country=="BR":
