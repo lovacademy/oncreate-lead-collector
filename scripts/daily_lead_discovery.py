@@ -86,6 +86,10 @@ def pg(path, payload=None, method=None, prefer=None):
                     "notes":payload.get("notes","")}
     elif path.startswith("discovered_leads?") and payload:
         req_body = {"action":"candidates","records":[payload]}
+    elif path == "research_control" and payload and payload.get("action") in (
+        "research_enqueue","research_claim","research_finish","research_phone_candidate"
+    ):
+        req_body = payload
     elif path == "collection_control" and payload and payload.get("action") in (
         "collection_claim","collection_progress","collection_complete",
         "geo_regions","geo_seed","geo_next","geo_mark","geo_budget",
@@ -105,7 +109,7 @@ def pg(path, payload=None, method=None, prefer=None):
     if req_body["action"]=="run_start":
         if not result.get("id"):raise RuntimeError("The intake endpoint did not create a run")
         return [{"id":result["id"]}]
-    if req_body["action"].startswith(("collection_","geo_","candidates")):
+    if req_body["action"].startswith(("collection_","geo_","research_","candidates")):
         return result
     return []
 
