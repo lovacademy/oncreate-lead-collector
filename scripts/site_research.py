@@ -267,6 +267,8 @@ def research(site):
     }
     phone_saved=0
     if (not valid_email and business_phone and phone_source_url and
+        int(evidence.get("pages_scanned") or 0)>=1 and
+        evidence.get("status") not in ("blocked","error","no_official_site") and
         len(landing["issues"])>=2 and landing["score"]>=65):
         lead={
           "email_absent":True,"business_phone":business_phone,
