@@ -56,10 +56,12 @@ jobs:
       # Official Claude web-search server tool: $0.01/query + tokens.
       CLAUDE_WEB_SEARCH: "true"
       CLAUDE_WEB_SEARCH_MAX_PER_RUN: "2"
+      # Continue scanning public websites from checkpoints at no extra Claude search cost.
+      SITE_RESEARCH_MAX_PER_RUN: "80"
       DISCOVERY_ENABLE_APOLLO: "false"
       COLLECTION_MODE: ${{ (github.event.schedule == '10 3 * * *' || github.event.schedule == '55 8 * * *' || github.event_name == 'workflow_dispatch') && 'scheduled' || 'poll' }}
       DISCOVERY_DELAY_SECONDS: "3"
-      MAX_RUNTIME_MINUTES: ${{ inputs.max_runtime_minutes || (github.event.schedule == '55 8 * * *' && '70' || '180') }}
+      MAX_RUNTIME_MINUTES: ${{ inputs.max_runtime_minutes || '340' }}
       MAX_DAILY_CANDIDATES: ${{ inputs.max_candidates || '3000' }}
       DISCOVERY_DAILY_SEARCH_CREDITS: "20"
       DISCOVERY_MONTHLY_SEARCH_CREDITS: "600"
