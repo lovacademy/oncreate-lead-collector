@@ -152,3 +152,56 @@ def search_company_cnpj(company_name:str, expected_state:str, expected_city:str)
             or "https://consulta.datastone.com.br"
         ),"source_type":"company_name_lookup"}
     return best
+
+
+def public_company_profile(cnpj, expected_state, expected_city):
+    """Read publicly filed *business* fields from one exact CNPJ.
+
+    Do not extract partners, CPFs, personal records, or third-party email.
+    Phone is an establishment contact and must be reviewed by sales later.
+    """
+    digits=re.sub(r"\D","",str(cnpj or ""))
+    if not valid_cnpj(digits):
+        return None
+    req=request.Request(API+digits,headers={
+        "Accept":"application/json",
+        "User-Agent":"OnCreate-Lead-Research/1.0 (business record verification)"
+    })
+    try:
+        with request.urlopen(req,timeout=12) as res:
+            payload=json.loads(res.read(650000).decode("utf-8"))
+    except (error.HTTPError,error.URLError,TimeoutError,OSError,ValueError):
+        return None
+    info=payload.get("data") if isinstance(payload,dict) else None
+    if not isinstance(info,dict):
+        return None
+    if re.sub(r"\D","",str(info.get("cnpj") or ""))!=digits:
+        return None
+    if normalized(info.get("situacaoCadastral")) not in ("ativa","ativo"):
+        return None
+    if str(info.get("uf") or "").upper()!=str(expected_state or "").upper():
+        return None
+    if expected_city and normalized(info.get("municipio"))!=normalized(expected_city):
+        return None
+    cnaes=info.get("cnaes") or []
+    if not isinstance(cnaes,list):cnaes=[]
+    return {
+        "cnpj":digits,
+        "legal_name":str(info.get("razaoSocial") or "")[:160],
+        "trade_name":str(info.get("nomeFantasia") or "")[:160],
+        "registration_status":"Ativa",
+        "opened_at":str(info.get("dataInicioAtividades") or "")[:16],
+        "legal_form":str(info.get("naturezaJuridica") or "")[:100],
+        "capital_social":info.get("capitalSocial") if isinstance(info.get("capitalSocial"),(int,float)) else None,
+        "cnaes":[{"code":str(x.get("cnae") or "")[:10],
+                  "description":str(x.get("descricao") or "")[:130]}
+                 for x in cnaes[:8] if isinstance(x,dict)],
+        "business_phone":str(info.get("telefone") or "")[:40],
+        "business_email":str(info.get("email") or "")[:140],
+        "business_city":str(info.get("municipio") or "")[:70],
+        "business_state":str(info.get("uf") or "")[:2],
+        "address":", ".join(str(info.get(k) or "").strip()
+                            for k in ("logradouro","numero","bairro","cep")
+                            if info.get(k))[:220],
+        "source_url":API+digits,
+    }
