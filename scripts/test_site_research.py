@@ -71,7 +71,7 @@ class SiteResearchTests(unittest.TestCase):
                    side_effect=[dict(NO_MAIL),dict(GOOD_MAIL)]),\
              patch("site_research.public_web_url",return_value="https://www.clinicateste.com.br"),\
              patch("site_research.search_company_cnpj",return_value=None),\
-             patch("site_research.pg") as phone_write,\\
+             patch("site_research.pg") as phone_write,\
              patch("site_research.persist",return_value=True):
             result=research(SITE)
         self.assertEqual(result["email_saved"],1)
