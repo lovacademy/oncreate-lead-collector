@@ -26,6 +26,8 @@ MONTHLY_SEARCH_BUDGET=max(50,min(1000,int(os.environ.get("DISCOVERY_MONTHLY_SEAR
 SCRIPT=Path(__file__).parent/"daily_lead_discovery.py"
 OSM_SCRIPT=Path(__file__).parent/"osm_discovery.py"
 CLAUDE_WEB_SCRIPT=Path(__file__).parent/"claude_web_discovery.py"
+SITE_RESEARCH_SCRIPT=Path(__file__).parent/"site_research.py"
+MAX_RESEARCH_SITES=max(1,min(150,int(os.getenv("SITE_RESEARCH_MAX_PER_RUN","80"))))
 OSM_CITY_LIMIT=max(1,min(12,int(os.environ.get("DISCOVERY_OSM_CITY_LIMIT","8"))))
 
 PRIORITY_STATES={
@@ -84,10 +86,12 @@ def main():
     source_mode=job.get("source_mode","FREE_ONLY")
     # Child processes inherit this explicit mode; FREE_ONLY never calls Claude.
     os.environ["DISCOVERY_SOURCE_MODE"]=source_mode
+    os.environ["COLLECTION_JOB_ID"]=job_id
     max_minutes=min(MAX_MINUTES,int(job.get("max_runtime_minutes") or MAX_MINUTES))
     start=time.monotonic()
     deadline=start+max_minutes*60
     count=0;rounds=0;searched=0;free_scans=0;errors=0
+    sites_researched=0;phone_leads_saved=0;research_errors=0
     claude_calls=0;claude_input=0;claude_output=0
     claude_web_requests=0;claude_web_input=0;claude_web_output=0
     claude_web_cap=max(0,min(3,int(os.getenv("CLAUDE_WEB_SEARCH_MAX_PER_RUN","2"))))
@@ -205,6 +209,7 @@ def main():
                 env.update({
                     "DISCOVERY_COUNTRY":country,"DISCOVERY_STATES":state,
                     "DISCOVERY_CITY":city,"DISCOVERY_KEYWORDS":specialty,
+                    "COLLECTION_JOB_ID":job_id,
                     "CLAUDE_MAX_CALLS_PER_CITY":str(max(0,min(2,claude_run_cap-claude_calls)))
                 })
                 try:
@@ -252,6 +257,41 @@ def main():
                     except Exception:pass
                     progress()
                 remaining_web-=1
+        # Investigate all queued sites individually, independent of Claude query count.
+        # Each site has a durable checkpoint and is resumed after runner interruption.
+        for investigation in range(MAX_RESEARCH_SITES):
+            if time.monotonic()>deadline-155:break
+            try:
+                env=os.environ.copy()
+                env.update({"COLLECTION_JOB_ID":job_id,
+                            "DISCOVERY_COUNTRY":country_mode if country_mode!="BOTH" else "BR"})
+                proc=subprocess.run([sys.executable,str(SITE_RESEARCH_SCRIPT)],
+                    env=env,capture_output=True,text=True,
+                    timeout=min(145,max(30,int(deadline-time.monotonic()-25))))
+                if proc.returncode!=0:
+                    raise RuntimeError((proc.stderr or "Site investigation failed")[-180:])
+                result=json.loads(proc.stdout.strip().splitlines()[-1])
+                if result.get("work") is not True:break
+                sites_researched+=1
+                found=max(0,int(result.get("email_saved") or 0))
+                count+=found
+                phone_leads_saved+=max(0,int(result.get("phone_saved") or 0))
+                research_errors+=int(bool(result.get("failed")))
+                notes=("Investigação profunda: "+str(sites_researched)+" sites • "+
+                    str(phone_leads_saved)+" oportunidades com telefone • "+
+                    str(count)+" novos e-mails • "+str(claude_web_requests)+
+                    " pesquisas Claude").strip()[:350]
+                progress()
+            except subprocess.TimeoutExpired:
+                research_errors+=1
+                notes="Tempo por site atingido: checkpoint disponível para retomada."
+                progress()
+            except Exception as exc:
+                research_errors+=1
+                notes=("Falha em pesquisa de site: "+type(exc).__name__)[:350]
+                progress()
+                if research_errors>=4:break
+        errors+=research_errors
         budget=intake("collection_control",{"action":"geo_budget","job_id":job_id})
         available=max(0,MONTHLY_SEARCH_BUDGET-int(budget.get("used_this_month",0)))
         # Do not spend search credits when free open-data discovery was productive.
@@ -374,7 +414,12 @@ def main():
                     if consecutive_failures>=3:
                         raise RuntimeError("Três consultas falharam; confira cota Tavily e conexão.")
                 time.sleep(3)
-        if not notes:
+        if sites_researched:
+            notes=("Sites investigados: "+str(sites_researched)+" • "+
+                   str(phone_leads_saved)+" leads sem e-mail elegíveis • "+
+                   str(count)+" e-mails novos • "+str(claude_web_requests)+
+                   " buscas Claude; sem Tavily/Brave.")[:350]
+        elif not notes:
             notes="Nenhuma pesquisa adicional elegível neste ciclo."
     except Exception as exc:
         status="failed"
@@ -385,7 +430,11 @@ def main():
     print(json.dumps({
         "job_id":job_id,"status":status,"rounds":rounds,
         "candidates":count,"site_searches":searched,"free_source_scans":free_scans,"errors":errors,
-        "elapsed_min":round((time.monotonic()-start)/60,1)
+        "elapsed_min":round((time.monotonic()-start)/60,1),
+        "sites_researched":sites_researched,"phone_leads_saved":phone_leads_saved,
+        "claude_web_search_requests":claude_web_requests,
+        "claude_web_estimated_usd":round(claude_web_requests*.01+
+            (claude_web_input*.10+claude_web_output*.50)/1_000_000,5)
     }),flush=True)
     if status=="failed":raise RuntimeError(notes)
 
